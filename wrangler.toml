@@ -1,5 +1,12 @@
 name = "clubdefinanzas"
 compatibility_date = "2026-03-01"
+main = "worker/index.ts"
 
 [assets]
 directory = "./out"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "clubdefinanzas-db"
+database_id = "clubdefinanzas-db"
