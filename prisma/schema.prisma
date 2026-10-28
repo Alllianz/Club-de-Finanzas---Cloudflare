@@ -1,0 +1,314 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+enum Role {
+  ADMIN
+  EDITOR
+}
+
+enum ArticleSection {
+  HOME
+  PORTFOLIO
+  RESEARCH
+  NEWS
+}
+
+enum ArticleStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum TeamSection {
+  LEADERSHIP
+  PORTFOLIO
+  RESEARCH
+  RRII
+}
+
+enum PostType {
+  REPORT
+  NEWSLETTER
+  EVENT
+}
+
+enum PostSection {
+  HOME
+  PORTFOLIO
+  RESEARCH
+  NEWSLETTER
+  INSTITUTIONAL
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum AssetKind {
+  PDF
+  IMAGE
+  FLYER
+}
+
+enum ContactLinkKind {
+  LINKEDIN
+  INSTAGRAM
+  X
+  EMAIL
+  WHATSAPP
+  YOUTUBE
+  LOCATION
+  OTHER
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  fullName  String   @default("")
+  role      Role
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  otps     Otp[]
+  articles Article[]
+}
+
+model Otp {
+  id         String    @id @default(uuid())
+  email      String
+  code       String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@index([email])
+  @@index([expiresAt])
+}
+
+model Article {
+  id          String         @id @default(uuid())
+  section     ArticleSection
+  category    String
+  title       String
+  excerpt     String
+  content     String
+  ctaLabel    String
+  ctaUrl      String
+  status      ArticleStatus  @default(DRAFT)
+  publishedAt DateTime?
+  isFeatured  Boolean        @default(false)
+  authorId    String
+  author      User           @relation(fields: [authorId], references: [id])
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([section, status])
+  @@index([publishedAt])
+}
+
+model LetrasSnapshot {
+  id          String                 @id @default(uuid())
+  tradingDate DateTime               @unique
+  source      String                 @default("ArgentinaDatos")
+  stale       Boolean                @default(false)
+  fetchedAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  curveA      Float?
+  curveB      Float?
+  curveC      Float?
+  instruments LetrasInstrumentPoint[]
+}
+
+model LetrasInstrumentPoint {
+  id               String         @id @default(uuid())
+  snapshotId       String
+  snapshot         LetrasSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  ticker           String
+  fechaEmision     DateTime?
+  fechaVencimiento DateTime
+  dtmDays          Int
+  temPercent       Float?
+  tnaPercent       Float?
+  teaPercent       Float?
+  vpv              Float
+  price            Float
+  createdAt        DateTime       @default(now())
+
+  @@unique([snapshotId, ticker])
+  @@index([snapshotId, dtmDays])
+}
+
+model CountryRiskSnapshot {
+  id          String             @id @default(uuid())
+  tradingDate DateTime           @unique
+  source      String             @default("ArgentinaDatos")
+  stale       Boolean            @default(false)
+  fetchedAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  points      CountryRiskPointDb[]
+}
+
+model CountryRiskPointDb {
+  id         String              @id @default(uuid())
+  snapshotId String
+  snapshot   CountryRiskSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  riskDate   DateTime
+  value      Float
+  createdAt  DateTime            @default(now())
+
+  @@unique([snapshotId, riskDate])
+  @@index([snapshotId, riskDate])
+}
+
+model TeamMember {
+  id          String      @id @default(uuid())
+  fullName    String
+  title       String
+  shortBio    String?
+  imageUrl    String?
+  profileUrl  String?
+  section     TeamSection
+  displayOrder Int        @default(0)
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([section, isActive, displayOrder])
+  postAuthors PostAuthor[]
+}
+
+model Post {
+  id            String      @id @default(uuid())
+  slug          String      @unique
+  type          PostType
+  section       PostSection
+  status        PostStatus  @default(DRAFT)
+  title         String
+  summary       String
+  body          String?
+  isFeatured    Boolean     @default(false)
+  featuredOrder Int         @default(0)
+  publishedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  assets     PostAsset[]
+  authors    PostAuthor[]
+  eventMeta  EventMeta?
+
+  @@index([section, status, publishedAt])
+  @@index([type, status, publishedAt])
+}
+
+model PostAsset {
+  id        String    @id @default(uuid())
+  postId    String
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  kind      AssetKind
+  url       String
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  @@index([postId, sortOrder])
+}
+
+model PostAuthor {
+  id           String     @id @default(uuid())
+  postId       String
+  teamMemberId String
+  sortOrder    Int        @default(0)
+  post         Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  teamMember   TeamMember @relation(fields: [teamMemberId], references: [id], onDelete: Restrict)
+
+  @@unique([postId, teamMemberId])
+  @@index([postId, sortOrder])
+}
+
+model EventMeta {
+  id              String   @id @default(uuid())
+  postId          String   @unique
+  post            Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  eventDate       DateTime
+  registrationUrl String?
+  pinUntil        DateTime
+}
+
+model Sponsor {
+  id          String   @id @default(uuid())
+  name        String
+  logoUrl     String?
+  linkUrl     String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model Resource {
+  id          String   @id @default(uuid())
+  title       String
+  type        String
+  url         String
+  description String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model ContactLink {
+  id        String          @id @default(uuid())
+  kind      ContactLinkKind
+  label     String
+  value     String?
+  href      String
+  sortOrder Int             @default(0)
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model Member {
+  id          String      @id @default(uuid())
+  email       String      @unique
+  fullName    String
+  phone       String
+  isActive    Boolean     @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  otps        MemberOtp[]
+
+  @@index([email])
+}
+
+model MemberOtp {
+  id         String    @id @default(uuid())
+  email      String
+  code       String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  memberId   String
+  member     Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([expiresAt])
+}
+

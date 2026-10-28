@@ -1,0 +1,150 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --navy-dark: #091a36;
+  --navy-primary: #0e2246;
+  --blue-accent: #0062ff;
+  --blue-light: #f0f6ff;
+  --blue-subtle: #f8fafc;
+  --blue-border: #d8e5f8;
+  --text-main: #0f172a;
+  --text-body: #334155;
+  --text-muted: #64748b;
+  --bg-page: #ffffff;
+  --card-border: #e2e8f0;
+  --shadow-subtle: 0 2px 8px rgba(14, 34, 70, 0.04);
+  --shadow-card: 0 4px 20px rgba(9, 26, 54, 0.06);
+
+  /* Shadcn compatibility bindings */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.2 0.04 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.04 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.04 250);
+  --primary: oklch(0.24 0.08 250);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.96 0.02 250);
+  --secondary-foreground: oklch(0.24 0.08 250);
+  --muted: oklch(0.96 0.01 250);
+  --muted-foreground: oklch(0.5 0.03 250);
+  --accent: oklch(0.55 0.22 255);
+  --accent-foreground: oklch(1 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.01 250);
+  --input: oklch(0.92 0.01 250);
+  --ring: oklch(0.55 0.22 255);
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --color-navy-dark: var(--navy-dark);
+  --color-navy-primary: var(--navy-primary);
+  --color-blue-accent: var(--blue-accent);
+  --color-blue-light: var(--blue-light);
+  --color-blue-subtle: var(--blue-subtle);
+  --color-blue-border: var(--blue-border);
+  --color-card-border: var(--card-border);
+  --color-text-main: var(--text-main);
+  --color-text-body: var(--text-body);
+  --color-text-muted: var(--text-muted);
+}
+
+@layer base {
+  * {
+    border-color: var(--card-border);
+    box-sizing: border-box;
+  }
+  body {
+    background-color: #ffffff;
+    color: var(--text-body);
+    font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--navy-primary);
+    font-family: var(--font-sans), system-ui, sans-serif;
+    font-weight: 700;
+  }
+}
+
+/* Tablas financieras con estilo del reporte */
+.table-custom {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.table-custom th {
+  background: var(--navy-dark);
+  color: #ffffff;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: left;
+}
+.table-custom th:first-child {
+  border-top-left-radius: 0.625rem;
+}
+.table-custom th:last-child {
+  border-top-right-radius: 0.625rem;
+}
+.table-custom td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: var(--text-body);
+}
+.table-custom tr:nth-child(even) td {
+  background: #f8fafc;
+}
+.table-custom tr:hover td {
+  background: #f0f6ff;
+}
+
+/* Círculos KPI y badges con estilo del reporte */
+.kpi-circ {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  background-color: var(--navy-dark);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.kpi-circ.blue {
+  background-color: var(--blue-accent);
+}
+.kpi-circ.cyan {
+  background-color: #0284c7;
+}
+.kpi-circ.teal {
+  background-color: #00a8a8;
+}
+
+/* Animaciones */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.4s ease-out both;
+}
+
+.animate-fade-up-delayed {
+  animation: fade-up 0.5s ease-out 0.1s both;
+}
