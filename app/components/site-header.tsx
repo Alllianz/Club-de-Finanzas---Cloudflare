@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 import { navigation } from "../site-data";
+import { Topline } from "./topline";
 
 type NavProps = {
   currentPath: string;
@@ -20,8 +21,9 @@ export function SiteHeader({ currentPath }: NavProps) {
 
   return (
     <header className="sticky top-0 z-50 border-b border-[#e5e7eb] bg-[#ffffff]/98 backdrop-blur-md transition-all shadow-xs">
+      <Topline />
       <div className="mx-auto flex w-[min(1420px,94vw)] items-center justify-between py-2 md:py-2.5">
-        {/* Logo ampliado, nítido y con jerarquía institucional */}
+        {/* Logo ampliado con jerarquía institucional */}
         <Link href="/" className="group flex items-center transition-opacity hover:opacity-95" aria-label="Club de Finanzas UBA - Inicio">
           <div className="relative flex h-16 sm:h-20 md:h-24 lg:h-26 w-[260px] sm:w-[360px] md:w-[460px] lg:w-[560px] items-center justify-start">
             <Image
@@ -35,7 +37,7 @@ export function SiteHeader({ currentPath }: NavProps) {
           </div>
         </Link>
 
-        {/* Navegación Desktop: Inicio, Portafolio, Futuros, Research, Nosotros */}
+        {/* Navegación Desktop: Inicio, Portafolio, Futuros, Research, Nosotros + Botón Sumate */}
         <nav className="hidden items-center gap-1 xl:gap-2 lg:flex" aria-label="Navegación principal">
           {navigation.map((item) => {
             const active = isNavItemActive(currentPath, item.href);
@@ -44,9 +46,9 @@ export function SiteHeader({ currentPath }: NavProps) {
               <Link
                 key={item.label}
                 href={item.href}
-                className={`relative inline-flex items-center rounded-md px-4 py-2 text-xs font-semibold tracking-[0.1em] uppercase transition-colors duration-150 ${
+                className={`relative inline-flex items-center rounded-md px-3.5 py-2 text-xs font-semibold tracking-[0.1em] uppercase transition-colors duration-150 ${
                   active
-                    ? "text-[#0b1727] font-bold after:absolute after:bottom-0 after:left-3.5 after:right-3.5 after:h-[2px] after:bg-[#0b1727]"
+                    ? "text-[#0b1727] font-bold after:absolute after:bottom-0 after:left-3 after:right-3 after:h-[2px] after:bg-[#0b1727]"
                     : "text-[#475569] hover:text-[#0b1727] hover:bg-[#f8fafc]"
                 }`}
               >
@@ -54,6 +56,14 @@ export function SiteHeader({ currentPath }: NavProps) {
               </Link>
             );
           })}
+
+          <Link
+            href="/unite"
+            className="ml-3 inline-flex items-center gap-1.5 rounded-lg bg-[#0b1727] px-4 py-2 text-xs font-bold uppercase tracking-[0.1em] text-white shadow-xs transition-colors hover:bg-[#1e3a8a]"
+          >
+            <span>Sumate</span>
+            <span>↗</span>
+          </Link>
         </nav>
 
         {/* Botón menú móvil */}
@@ -98,6 +108,16 @@ export function SiteHeader({ currentPath }: NavProps) {
                 </li>
               );
             })}
+            <li className="pt-2 border-t border-[#f1f5f9]">
+              <Link
+                href="/unite"
+                className="flex items-center justify-center gap-2 rounded-lg bg-[#0b1727] px-4 py-3 text-xs font-bold uppercase tracking-wider text-white shadow-xs hover:bg-[#1e3a8a]"
+                onClick={() => setOpen(false)}
+              >
+                <span>Sumate al Club</span>
+                <span>↗</span>
+              </Link>
+            </li>
           </ul>
         </nav>
       )}
