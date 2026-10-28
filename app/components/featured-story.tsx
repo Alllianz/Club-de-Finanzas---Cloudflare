@@ -9,46 +9,46 @@ export function FeaturedStory({ story }: FeaturedStoryProps) {
   const isExternal = story.href.startsWith("http");
 
   return (
-    <article className="relative overflow-hidden rounded-2xl border border-[#e2e8f0] bg-[#ffffff] p-7 md:p-10 shadow-[0_4px_24px_rgba(9,26,54,0.06)]">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="rounded-full border border-[#d8e5f8] bg-[#f0f6ff] px-3.5 py-1 text-xs font-bold uppercase tracking-wider text-[#0062ff]">
+    <article className="group relative overflow-hidden rounded-xl border border-[#e2e8f0] bg-[#ffffff] p-8 md:p-12 shadow-xs transition-shadow duration-200 hover:shadow-md">
+      <div className="flex flex-wrap items-center gap-3.5">
+        <span className="rounded-md border border-[#e2e8f0] bg-[#f8fafc] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-[#1e3a8a]">
           {story.category}
         </span>
         {story.date && (
-          <span className="text-xs font-semibold uppercase tracking-wider text-[#64748b]">
+          <span className="text-xs font-medium uppercase tracking-wider text-[#64748b]">
             {story.date}
           </span>
         )}
       </div>
 
-      <h2 className="mt-4 text-2xl font-extrabold leading-tight text-[#0e2246] sm:text-3xl md:text-4xl lg:text-5xl">
+      <h2 className="mt-5 font-serif text-2xl font-bold leading-tight text-[#0b1727] sm:text-3xl md:text-4xl lg:text-[2.75rem]">
         {story.title}
       </h2>
 
       {story.imageUrl ? (
-        <div className="mt-6 overflow-hidden rounded-2xl border border-[#e2e8f0] bg-[#f8fafc]">
-          <div className="h-[300px] w-full md:h-[440px]">
+        <div className="mt-8 overflow-hidden rounded-lg border border-[#e2e8f0] bg-[#f8fafc]">
+          <div className="h-[320px] w-full md:h-[460px]">
             <img
               src={story.imageUrl}
               alt={story.title}
-              className="h-full w-full object-cover"
+              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.01]"
               loading="lazy"
             />
           </div>
         </div>
       ) : null}
 
-      <p className="mt-5 max-w-4xl text-base leading-relaxed text-[#475569] md:text-lg">
+      <p className="mt-6 max-w-4xl text-base leading-relaxed text-[#475569] md:text-lg">
         {story.excerpt}
       </p>
 
-      <div className="mt-7">
+      <div className="mt-8">
         {isExternal ? (
           <a
             href={story.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-full bg-[#091a36] px-6 py-3 text-xs font-bold uppercase tracking-wider text-white shadow-sm transition hover:bg-[#0062ff]"
+            className="inline-flex items-center gap-2 rounded-md bg-[#0b1727] px-6 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-xs transition-colors hover:bg-[#1e3a8a]"
           >
             <span>{story.cta}</span>
             <span>→</span>
@@ -56,7 +56,7 @@ export function FeaturedStory({ story }: FeaturedStoryProps) {
         ) : (
           <Link
             href={story.href}
-            className="inline-flex items-center gap-2 rounded-full bg-[#091a36] px-6 py-3 text-xs font-bold uppercase tracking-wider text-white shadow-sm transition hover:bg-[#0062ff]"
+            className="inline-flex items-center gap-2 rounded-md bg-[#0b1727] px-6 py-3 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-xs transition-colors hover:bg-[#1e3a8a]"
           >
             <span>{story.cta}</span>
             <span>→</span>

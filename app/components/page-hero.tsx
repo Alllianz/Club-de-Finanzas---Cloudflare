@@ -7,20 +7,27 @@ type HeroProps = {
   aside?: ReactNode;
 };
 
-export function PageHero({ eyebrow, title, description }: HeroProps) {
+export function PageHero({ eyebrow, title, description, aside }: HeroProps) {
   return (
-    <section className="relative overflow-hidden border-b border-[#e2e8f0] bg-gradient-to-b from-[#f0f6ff]/80 via-[#ffffff] to-[#ffffff] py-12 md:py-16">
-      <div className="mx-auto w-[min(1280px,92vw)]">
+    <section className="relative border-b border-[#e5e7eb] bg-[#fafaf9] py-14 md:py-20">
+      <div className="mx-auto w-[min(1320px,92vw)]">
         <div className="max-w-4xl animate-fade-up">
-          <span className="inline-flex items-center gap-2 rounded-full border border-[#d8e5f8] bg-[#f0f6ff] px-3.5 py-1 text-xs font-bold uppercase tracking-[0.2em] text-[#0062ff]">
-            {eyebrow}
-          </span>
-          <h1 className="mt-4 text-3xl font-extrabold leading-[1.12] tracking-tight text-[#0e2246] sm:text-4xl md:text-5xl lg:text-6xl">
+          <div className="flex items-center gap-2.5">
+            <span className="h-[2px] w-6 bg-[#b89047]" />
+            <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#1e3a8a]">
+              {eyebrow}
+            </span>
+          </div>
+
+          <h1 className="mt-4 font-serif text-3xl font-bold leading-[1.15] tracking-tight text-[#0b1727] sm:text-4xl md:text-5xl lg:text-[3.4rem]">
             {title}
           </h1>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-[#475569] sm:text-lg md:text-xl">
+
+          <p className="mt-5 max-w-3xl text-base font-normal leading-relaxed text-[#475569] sm:text-lg md:text-xl">
             {description}
           </p>
+
+          {aside ? <div className="mt-8">{aside}</div> : null}
         </div>
       </div>
     </section>

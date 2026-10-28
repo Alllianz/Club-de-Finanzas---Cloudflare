@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Montserrat, JetBrains_Mono } from "next/font/google";
+import { Montserrat } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { cn } from "@/lib/utils";
@@ -8,13 +8,6 @@ const montserrat = Montserrat({
   variable: "--font-sans",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700", "800"],
-  display: "swap",
-});
-
-const monoFont = JetBrains_Mono({
-  variable: "--font-mono",
-  subsets: ["latin"],
-  weight: ["500", "700"],
   display: "swap",
 });
 
@@ -34,11 +27,10 @@ export default function RootLayout({
       lang="es"
       className={cn(
         montserrat.variable,
-        monoFont.variable,
         "font-sans scroll-smooth",
       )}
     >
-      <body className="min-h-screen bg-[#ffffff] font-sans text-[#334155] antialiased selection:bg-[#0062ff]/15 selection:text-[#091a36]">
+      <body className="min-h-screen bg-[#ffffff] font-sans text-[#334155] antialiased selection:bg-[#0b1727]/10 selection:text-[#0b1727]">
         <Providers>{children}</Providers>
       </body>
     </html>

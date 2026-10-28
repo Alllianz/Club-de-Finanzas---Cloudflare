@@ -25,12 +25,10 @@ export type NavigationItem = {
 
 export const navigation: NavigationItem[] = [
   { href: "/", label: "Inicio" },
-  { href: "/newsletter", label: "Newsletter" },
-  { href: "/research", label: "Research" },
   { href: "/portfolio", label: "Portafolio" },
-  { href: "/sobre-nosotros", label: "Sobre Nosotros" },
-  { href: "/miembros", label: "Miembros" },
-  { href: "/unite", label: "Unite" },
+  { href: "/futuros", label: "Futuros" },
+  { href: "/research", label: "Research" },
+  { href: "/sobre-nosotros", label: "Nosotros" },
 ];
 
 export const contactLinks = [
