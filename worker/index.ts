@@ -14,7 +14,7 @@ export interface Fetcher {
 }
 
 export interface Env {
-  DB: D1Database;
+  DB?: D1Database;
   ASSETS: Fetcher;
 }
 
@@ -39,6 +39,16 @@ export default {
     // 1. API: Registro de Miembros en Cloudflare D1
     if (url.pathname === "/api/members/register" && request.method === "POST") {
       try {
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "Base de datos D1 no vinculada aún. Por favor configura el database_id en wrangler.toml.",
+            }),
+            { status: 503, headers: { "Content-Type": "application/json" } }
+          );
+        }
+
         const body = (await request.json()) as RegisterBody;
         const fullName = body.fullName?.trim();
         const email = body.email?.trim().toLowerCase();
@@ -107,65 +117,18 @@ export default {
           }),
           { status: 201, headers: { "Content-Type": "application/json" } }
         );
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Error al procesar registro en D1";
+      } catch (err) {
         return new Response(
-          JSON.stringify({ success: false, error: message }),
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al procesar el registro en D1.",
+          }),
           { status: 500, headers: { "Content-Type": "application/json" } }
         );
       }
     }
 
-    // 2. API: Consulta de Miembro Actual
-    if (url.pathname === "/api/members/me" && request.method === "GET") {
-      const email = url.searchParams.get("email")?.trim().toLowerCase();
-      if (!email) {
-        return new Response(JSON.stringify({ member: null }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      const member = await env.DB.prepare(
-        "SELECT id, full_name, email, phone, created_at FROM members WHERE email = ?"
-      )
-        .bind(email)
-        .first<MemberRecord>();
-
-      if (!member) {
-        return new Response(JSON.stringify({ member: null }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      return new Response(
-        JSON.stringify({
-          member: {
-            id: member.id,
-            fullName: member.full_name,
-            email: member.email,
-            phone: member.phone,
-            createdAt: member.created_at,
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // 3. API: Health Check
-    if (url.pathname === "/api/health") {
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          platform: "cloudflare-workers-d1",
-          timestamp: new Date().toISOString(),
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // 4. Servir los archivos estáticos de Next.js desde ASSETS
+    // 2. Servir activos estáticos de Next.js mediante Cloudflare Assets
     return env.ASSETS.fetch(request);
   },
 };
