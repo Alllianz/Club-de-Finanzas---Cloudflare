@@ -6,9 +6,7 @@ main = "worker/index.ts"
 directory = "./out"
 binding = "ASSETS"
 
-# Para habilitar la base de datos D1 en producción, crea la base en Cloudflare D1
-# y reemplaza database_id con el UUID asignado por Cloudflare:
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "clubdefinanzas-db"
-# database_id = "TU_DATABASE_ID_AQUI"
+[[d1_databases]]
+binding = "DB"
+database_name = "clubdefinanzas-db"
+database_id = "71ce5760-f1c7-4a7b-831d-255ce894f363"
