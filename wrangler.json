@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "club-de-finanzas---cloudflare",
+  "compatibility_date": "2026-03-01",
+  "main": "worker/index.ts",
+  "assets": {
+    "directory": "./out",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "clubdefinanzas-db",
+      "database_id": "71ce5760-f1c7-4a7b-831d-255ce894f363"
+    }
+  ]
+}

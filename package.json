@@ -8,8 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "pages:build": "next build",
-    "pages:deploy": "wrangler pages deploy out",
-    "deploy": "wrangler pages deploy out",
+    "pages:deploy": "wrangler deploy",
+    "deploy": "wrangler deploy",
     "preview": "wrangler pages dev out",
     "prisma:generate": "prisma generate"
   },

@@ -74,9 +74,13 @@ export function SiteFooter() {
 
         {/* Fila Inferior: Copyright y Disclaimer (Formato .footer-bottom de index.html) */}
         <div className="grid grid-cols-1 gap-6 border-t border-[#e5e7eb] pt-6 lg:grid-cols-[auto_1fr] lg:gap-12">
-          <span className="text-xs font-medium text-[#64748b]">
-            © {new Date().getFullYear()} Club de Finanzas UBA
-          </span>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-[#64748b]">
+            <span>© {new Date().getFullYear()} Club de Finanzas UBA</span>
+            <span className="hidden sm:inline text-[#cbd5e1]">•</span>
+            <span className="rounded-full bg-[#f1f5f9] px-2.5 py-0.5 text-[10px] font-semibold text-[#1e3a8a]">
+              Plataforma Digital Oficial
+            </span>
+          </div>
           <p className="text-[11px] leading-relaxed text-[#64748b]">
             El Club de Finanzas UBA es una iniciativa independiente y sin fines de lucro, integrada por miembros autoconvocados pertenecientes a la Universidad de Buenos Aires. No constituye una unidad oficial ni representa institucionalmente a la UBA. El contenido publicado en este portal es de carácter estrictamente educativo, analítico y formativo; no constituye asesoramiento financiero ni recomendación de inversión.
           </p>

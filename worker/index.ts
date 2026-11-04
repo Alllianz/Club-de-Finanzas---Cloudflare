@@ -43,7 +43,7 @@ export default {
           return new Response(
             JSON.stringify({
               success: false,
-              error: "Base de datos D1 no vinculada aún. Por favor configura el database_id en wrangler.toml.",
+              error: "Base de datos D1 no vinculada aún. Por favor configura el database_id en wrangler.json.",
             }),
             { status: 503, headers: { "Content-Type": "application/json" } }
           );
