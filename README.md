@@ -1,10 +1,10 @@
-# Club de Finanzas UBA - Despliegue en Cloudflare Pages
+# Club de Finanzas UBA - Despliegue en Cloudflare Workers & D1
 
-Esta versión del proyecto está configurada para exportación estática (`output: 'export'`) y despliegue ultra rápido y global en **Cloudflare Pages** usando **Wrangler**.
+Esta versión del proyecto está configurada para exportación estática (`output: 'export'`) y backend serverless con base de datos SQLite distribuida globalmente en **Cloudflare Workers & D1** usando **Wrangler**.
 
 ---
 
-## 🚀 Requisitos Previos
+## 📋 Requisitos Previos
 
 - **Node.js**: Versión 20 o superior.
 - **Wrangler**: Cloudflare Developer Platform CLI (incluido en `devDependencies`).
@@ -12,7 +12,7 @@ Esta versión del proyecto está configurada para exportación estática (`outpu
 
 ---
 
-## 🛠️ Comandos Principales
+## 🚀 Comandos Principales
 
 ### 1. Desarrollo Local
 Para levantar el servidor de desarrollo de Next.js:
@@ -26,27 +26,17 @@ Compila el proyecto y genera los archivos estáticos en la carpeta `out/`:
 npm run build
 ```
 
-### 3. Vista previa local con Cloudflare Pages (Wrangler)
-Simula el entorno de Cloudflare Pages localmente:
+### 3. Despliegue a Cloudflare Workers mediante Wrangler
+Despliega el worker con los assets estáticos y la base D1 conectada:
 ```bash
-npm run preview
+npx wrangler deploy
 ```
-
-### 4. Despliegue a Cloudflare Pages mediante Wrangler
-Despliega directamente la carpeta estática `out/` a Cloudflare Pages:
-```bash
-npm run deploy
-```
-*(Wrangler te solicitará iniciar sesión en Cloudflare en el navegador si es la primera vez que lo ejecutas).*
 
 ---
 
-## ⚙️ Configuración para Despliegue Automatizado (Git + Cloudflare Pages Dashboard)
+## ⚙️ Arquitectura en Producción
 
-Cuando conectes este proyecto a un repositorio de GitHub/GitLab en el panel de Cloudflare Pages:
-
-- **Framework preset**: `Next.js (Static HTML Export)` o `None`
-- **Build command**: `npm run build`
-- **Build output directory**: `out`
-- **Variables de entorno**:
-  - `NODE_VERSION`: `20`
+- **Worker Name**: `club-de-finanzas---cloudflare`
+- **Assets Directory**: `./out` (Static HTML export con Next.js Turbopack)
+- **Database**: Cloudflare D1 (`clubdefinanzas-db`, ID: `71ce5760-f1c7-4a7b-831d-255ce894f363`)
+- **API Endpoints**: `/api/members/register` procesado nativamente por `worker/index.ts`

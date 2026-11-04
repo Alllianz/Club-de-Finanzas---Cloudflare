@@ -1,3 +1,4 @@
+# Club de Finanzas UBA - Cloudflare Workers & D1 Architecture
 name = "club-de-finanzas---cloudflare"
 compatibility_date = "2026-03-01"
 main = "worker/index.ts"
