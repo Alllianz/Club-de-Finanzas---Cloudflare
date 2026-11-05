@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reporte de Seguimiento de Portafolio vs SPY — Club de Finanzas UBA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <style>
+    :root {
+      --navy-dark: #091a36;
+      --navy-primary: #0e2246;
+      --blue-accent: #0062ff;
+      --blue-light: #f0f6ff;
+      --blue-border: #d8e5f8;
+      --green-up: #16a34a;
+      --red-down: #dc2626;
+      --text-main: #0f172a;
+      --text-body: #334155;
+      --text-muted: #64748b;
+      --bg-page: #ffffff;
+      --bg-body: #334155;
+      --card-border: #e2e8f0;
+      --shadow-subtle: 0 4px 20px rgba(14, 34, 70, 0.06);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-body);
+      color: var(--text-body);
+      line-height: 1.4;
+      padding: 24px 0 80px 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+    }
+
+    /* Barra de herramientas flotante */
+    .edit-toolbar-float {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999;
+      display: flex;
+      gap: 8px;
+      background: rgba(9, 26, 54, 0.95);
+      padding: 8px 12px;
+      border-radius: 40px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+
+    .btn-tool {
+      background: rgba(255,255,255,0.12);
+      color: #ffffff;
+      padding: 10px 16px;
+      border-radius: 30px;
+      font-size: 13px;
+      font-weight: 700;
+      border: 1px solid rgba(255,255,255,0.2);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-tool:hover { transform: scale(1.03); filter: brightness(1.1); }
+    .btn-tool.primary { background: var(--blue-accent); }
+    .btn-tool.warning { background: #d97706; }
+    .btn-tool.success { background: #16a34a; }
+    .btn-tool.dark { background: var(--navy-dark); }
+
+    /* Hoja A4 exacta (794px x 1122px) */
+    .page {
+      width: 794px;
+      height: 1122px;
+      min-height: 1122px;
+      max-height: 1122px;
+      background: var(--bg-page);
+      padding: 16px 36px 14px 36px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0 14px 40px rgba(0,0,0,0.35);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Encabezado */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--navy-dark);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .header-logo {
+      height: 76px;
+      width: auto;
+      object-fit: contain;
+    }
+
+    .header-divider {
+      width: 2px;
+      height: 46px;
+      background: var(--card-border);
+    }
+
+    .header-title {
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--navy-dark);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .page-tab {
+      background: #091a36;
+      color: #38bdf8;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 4px 12px;
+      border-radius: 20px;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+
+    /* Título principal */
+    .title-block {
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+    }
+
+    .main-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 21px;
+      font-weight: 800;
+      color: var(--navy-dark);
+      line-height: 1.15;
+    }
+
+    .main-subtitle {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--blue-accent);
+      margin-top: 3px;
+    }
+
+    .authors-subtitle {
+      font-size: 9.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .comp-badge {
+      background: #f0f6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 8.5px;
+      color: var(--navy-dark);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .comp-badge strong {
+      color: #0062ff;
+      font-weight: 800;
+    }
+
+    /* Cuadrícula de KPIs */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .kpi-box {
+      background: var(--blue-light);
+      border: 1px solid var(--blue-border);
+      border-radius: 8px;
+      padding: 8px 6px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .kpi-lbl {
+      font-size: 8px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      line-height: 1.1;
+      margin-bottom: 3px;
+    }
+
+    .kpi-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--navy-dark);
+    }
+    .kpi-val.green { color: var(--green-up); }
+    .kpi-val.red { color: var(--red-down); }
+    .kpi-val.blue { color: var(--blue-accent); }
+
+    /* Paneles de Contenido */
+    .panel-card {
+      background: #ffffff;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 10px;
+      box-shadow: var(--shadow-subtle);
+    }
+
+    .panel-header-title {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--navy-dark);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1.5px solid var(--blue-light);
+      padding-bottom: 4px;
+    }
+
+    .chart-box {
+      position: relative;
+      width: 100%;
+      height: 200px;
+    }
+
+    /* Tabla Comparativa */
+    .table-compare {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9.2px;
+      margin-top: 2px;
+    }
+    .table-compare th {
+      background: #091a36;
+      color: #ffffff;
+      padding: 4.5px 7px;
+      font-weight: 700;
+      text-align: left;
+    }
+    .table-compare td {
+      padding: 4px 7px;
+      border-bottom: 1px solid var(--card-border);
+      color: var(--text-body);
+    }
+    .table-compare tr:nth-child(even) { background: var(--blue-light); }
+    .table-compare tr:hover { background: #e0f2fe; }
+
+    /* Área de Texto Editorial / Comité */
+    .editorial-box {
+      background: #fdfefe;
+      border: 1px solid var(--blue-border);
+      border-left: 4px solid var(--blue-accent);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 0;
+    }
+
+    .editorial-title {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--navy-dark);
+      margin-bottom: 5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .editorial-p {
+      font-size: 9px;
+      line-height: 1.4;
+      color: var(--text-body);
+      margin-bottom: 4px;
+    }
+
+    /* Footer */
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 8px;
+      border-top: 1px solid var(--card-border);
+      position: relative;
+    }
+
+    .footer-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .footer-info-circ {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--navy-dark);
+      color: #fff;
+      font-size: 8px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .footer-text-small {
+      font-size: 8px;
+      color: var(--text-muted);
+      line-height: 1.2;
+    }
+
+    .footer-logo {
+      height: 52px;
+      width: auto;
+      object-fit: contain;
+    }
+
+    /* Estilos del Modo Edición */
+    body.modo-edicion-on [contenteditable="true"],
+    body.modo-edicion-on .editable-text {
+      outline: 1.5px dashed #0062ff !important;
+      background: rgba(0, 98, 255, 0.04) !important;
+      border-radius: 4px;
+      cursor: text !important;
+      transition: all 0.15s ease;
+    }
+    body.modo-edicion-on [contenteditable="true"]:hover,
+    body.modo-edicion-on .editable-text:hover {
+      background: rgba(0, 98, 255, 0.1) !important;
+      outline: 2px solid #0062ff !important;
+    }
+    body.modo-edicion-on [contenteditable="true"]:focus,
+    body.modo-edicion-on .editable-text:focus {
+      background: #ffffff !important;
+      outline: 2.5px solid #0062ff !important;
+      box-shadow: 0 0 12px rgba(0, 98, 255, 0.25) !important;
+    }
+
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+      *, *:before, *:after {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+        height: 1122px !important;
+        max-height: 1122px !important;
+        min-height: 1122px !important;
+        width: 794px !important;
+        overflow: hidden !important;
+        gap: 0 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .page {
+        box-shadow: none !important;
+        margin: 0 !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        height: 1122px !important;
+        min-height: 1122px !important;
+        max-height: 1122px !important;
+        width: 794px !important;
+        padding: 16px 36px 14px 36px !important;
+        overflow: hidden !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .edit-toolbar-float, .no-print-toolbar, #toastReport {
+        display: none !important;
+      }
+      body.modo-edicion-on [contenteditable="true"],
+      body.modo-edicion-on .editable-text {
+        outline: none !important;
+        background: transparent !important;
+        box-shadow: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+
+  <!-- PÁGINA 1: INFORME OFICIAL DE SEGUIMIENTO -->
+  <div class="page" id="page-1">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-left">
+        <img src="4.png" alt="Club de Finanzas UBA" class="header-logo">
+        <div class="header-divider"></div>
+        <span class="header-title">Informe Oficial de Seguimiento de Portafolio</span>
+      </div>
+      <div class="page-tab">Página 1 de 1 · Renta Variable</div>
+    </div>
+
+    <!-- Título y Subtítulo -->
+    <div class="title-block">
+      <div>
+        <h1 class="main-title editable-text" data-edit-id="tr_title">Seguimiento Cuantitativo de Cartera vs SPY</h1>
+        <p class="main-subtitle editable-text" data-edit-id="tr_sub">Monitoreo de Equity, Control de Drawdowns y Rendimiento Relativo con Rebalanceo Periódico</p>
+        <p class="authors-subtitle editable-text" data-edit-id="tr_auth">Autores: <span id="lblIntegrantesTexto"><strong>Fausto Crivelli</strong> (Presidente de Portafolio) · <strong>Luciano Mora</strong> (Analista Sr) · <strong>Florencia Beluzzo</strong> (Analista Sr)</span> · Benchmark: <strong>SPY (S&P 500)</strong> · Rebalanceo: <strong id="lblRebalanceFreq">Mensual (21 ruedas)</strong></p>
+        <p class="authors-subtitle editable-text" data-edit-id="tr_comp" style="margin-top: 3px; font-size: 9.3px; color: var(--navy-dark);">
+          <strong style="color: #0062ff;">💼 Composición de Cartera:</strong> <span id="lblComposicionTexto"><strong>AAPL</strong> (40,0%) · <strong>YPF</strong> (30,0%) · <strong>AMZN</strong> (30,0%)</span>
+        </p>
+      </div>
+      <div style="text-align: right; flex-shrink: 0; margin-bottom: 2px;">
+        <span class="page-tab" style="background:#0062ff; color:#fff; font-size: 9.5px; padding: 5px 12px;" id="lblDateRange">Histórico Reciente</span>
+      </div>
+    </div>
+
+    <!-- 6 KPIs Principales -->
+    <div class="kpi-grid">
+      <div class="kpi-box">
+        <div class="kpi-lbl">Ganancia Cartera</div>
+        <div class="kpi-val green editable-text" data-edit-id="tr_kpi_gain" id="tkGain">+38,4%</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-lbl">Ganancia SPY</div>
+        <div class="kpi-val editable-text" data-edit-id="tr_kpi_spy_gain" id="tkSpyGain">+21,2%</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-lbl">Alpha Neto vs SPY</div>
+        <div class="kpi-val blue editable-text" data-edit-id="tr_kpi_alpha" id="tkAlpha">+17,2%</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-lbl">Máx. Drawdown</div>
+        <div class="kpi-val red editable-text" data-edit-id="tr_kpi_mdd" id="tkMaxDd">-12,8%</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-lbl">Sharpe Realizado</div>
+        <div class="kpi-val editable-text" data-edit-id="tr_kpi_sharpe" id="tkSharpe">1,68</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-lbl">Estancamiento Máx.</div>
+        <div class="kpi-val editable-text" data-edit-id="tr_kpi_stag" id="tkMaxStag">34 Ruedas</div>
+      </div>
+    </div>
+
+    <!-- Panel 1: Gráfico de Curva de Equity -->
+    <div class="panel-card" style="margin-bottom: 10px;">
+      <div class="panel-header-title">
+        <span>📈 Evolución de Equity Acumulado (Base 100 = Inicio)</span>
+        <span style="font-size: 9px; color: var(--blue-accent); font-weight:700;">Cartera Óptima vs SPY Benchmark</span>
+      </div>
+      <div class="chart-box" style="height: 200px;">
+        <canvas id="chartReportEquity"></canvas>
+      </div>
+    </div>
+
+    <!-- Panel 2: Gráfico de Drawdown Submarino -->
+    <div class="panel-card" style="margin-bottom: 10px;">
+      <div class="panel-header-title">
+        <span>📉 Perfil de Riesgo: Curva Submarina de Drawdown (%)</span>
+        <span style="font-size: 9px; color: var(--red-down); font-weight:700;">Pérdida % desde Máximos Históricos</span>
+      </div>
+      <div class="chart-box" style="height: 120px;">
+        <canvas id="chartReportDD"></canvas>
+      </div>
+    </div>
+
+    <!-- Panel 3: Tabla Comparativa y Comentarios del Comité -->
+    <div style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 12px; margin-bottom: 8px;">
+      <!-- Tabla Comparativa -->
+      <div class="panel-card" style="margin-bottom: 0; padding: 10px 12px;">
+        <div class="panel-header-title" style="margin-bottom: 4px;">
+          <span>📊 Comparativa de Rendimiento & Riesgo</span>
+        </div>
+        <table class="table-compare">
+          <thead>
+            <tr>
+              <th>Métrica Financiera</th>
+              <th>Cartera</th>
+              <th>SPY</th>
+              <th>Diferencial</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyCompare">
+            <tr>
+              <td><strong>Retorno Acumulado</strong></td>
+              <td id="tblGainPort" style="font-weight:bold; color:var(--green-up);">+38,4%</td>
+              <td id="tblGainSpy">+21,2%</td>
+              <td id="tblGainDiff" style="color:var(--blue-accent); font-weight:bold;">+17,2%</td>
+            </tr>
+            <tr>
+              <td><strong>Volatilidad Anualizada</strong></td>
+              <td id="tblVolPort">17,8%</td>
+              <td id="tblVolSpy">16,4%</td>
+              <td id="tblVolDiff">+1,4%</td>
+            </tr>
+            <tr>
+              <td><strong>Ratio de Sharpe</strong></td>
+              <td id="tblSharpePort" style="font-weight:bold;">1,68</td>
+              <td id="tblSharpeSpy">1,05</td>
+              <td id="tblSharpeDiff" style="color:var(--green-up); font-weight:bold;">+0,63</td>
+            </tr>
+            <tr>
+              <td><strong>Máximo Drawdown</strong></td>
+              <td id="tblMddPort" style="color:var(--red-down);">-12,8%</td>
+              <td id="tblMddSpy" style="color:var(--red-down);">-18,6%</td>
+              <td id="tblMddDiff" style="color:var(--green-up); font-weight:bold;">+5,8%</td>
+            </tr>
+            <tr>
+              <td><strong>Estancamiento Máximo</strong></td>
+              <td id="tblStagPort">34 Días</td>
+              <td id="tblStagSpy">68 Días</td>
+              <td id="tblStagDiff" style="color:var(--green-up); font-weight:bold;">-34 Días</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--blue-border);">
+          <div style="font-size: 8.5px; font-weight: 700; color: var(--navy-dark); margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+            <span style="display: flex; align-items: center; gap: 4px;"><span style="color:#0062ff;">💼</span> Composición & Pesos Objetivo</span>
+            <span style="font-size: 7.8px; color: var(--blue-accent); font-weight: 700;">100% Invertido</span>
+          </div>
+          <div id="lblComposicionBadgesPanel" style="display: flex; flex-wrap: wrap; gap: 4px;">
+            <span class="comp-badge"><strong>AAPL</strong> 40,0%</span>
+            <span class="comp-badge"><strong>YPF</strong> 30,0%</span>
+            <span class="comp-badge"><strong>AMZN</strong> 30,0%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Espacio Editorial / Tesis de Seguimiento -->
+      <div class="editorial-box" style="margin-bottom: 0;">
+        <div class="editorial-title">
+          <span>📝 Comentarios del Comité de Inversiones</span>
+        </div>
+        <p class="editorial-p editable-text" data-edit-id="tr_comment_1">
+          La cartera demostró una sólida resiliencia operativa durante el período bajo análisis, capturando un <strong>Alpha neto superior al SPY</strong> con una reducción notable en la duración de los períodos de estancamiento.
+        </p>
+        <p class="editorial-p editable-text" data-edit-id="tr_comment_2">
+          La política de <strong>rebalanceo periódico</strong> permitió recortar ganancias en los activos que experimentaron fuertes subidas y recomprar posiciones rezagadas a valuaciones más atractivas, neutralizando la distorsión de ponderaciones.
+        </p>
+        <p class="editorial-p editable-text" data-edit-id="tr_comment_3" style="margin-bottom:4px;">
+          <strong>Conclusión:</strong> Se mantiene la recomendación de sostener las ponderaciones objetivo sin alteraciones tácticas extraordinarias.
+        </p>
+        <div style="margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--blue-border); font-size: 8.8px; color: var(--navy-dark); display: flex; justify-content: space-between; align-items: center;">
+          <span><strong>Autores:</strong> <span id="lblEditorialIntegrantes" class="editable-text" data-edit-id="tr_team"><strong>Fausto Crivelli</strong> (Presidente de Portafolio) · <strong>Luciano Mora</strong> (Analista Sr) · <strong>Florencia Beluzzo</strong> (Analista Sr)</span></span>
+          <span style="color: var(--text-muted); font-size: 8px;">Club de Finanzas UBA</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <div class="footer-left">
+        <div class="footer-info-circ">i</div>
+        <div class="footer-text-small editable-text" data-edit-id="tr_foot">
+          Fuente: Elaboración propia del Club de Finanzas UBA sobre cotizaciones de mercado y simulación con rebalanceo periódico.<br>
+          Documento institucional exclusivamente informativo y académico; no constituye asesoramiento personalizado de inversión.
+        </div>
+      </div>
+      <img src="4.png" alt="Club de Finanzas UBA" class="footer-logo">
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toastReport" style="position:fixed; bottom:24px; left:24px; background:#091a36; color:#ffffff; padding:12px 20px; border-radius:30px; font-size:13px; font-weight:700; border:1px solid rgba(255,255,255,0.25); box-shadow:0 10px 30px rgba(0,0,0,0.4); display:none; z-index:10000; align-items:center; gap:8px;">
+    <span>Operación realizada</span>
+  </div>
+
+  <script>
+    let chartEquity = null;
+    let chartDD = null;
+    let modoEdicion = false;
+
+    function formatearAutoresHtml(str) {
+      if (!str) return '';
+      if (str.includes('<strong') || str.includes('<b>')) return str;
+      const partes = str.split(/(?: · | - | \- | , )/);
+      return partes.map(p => {
+        p = p.trim();
+        const match = p.match(/^([^(]+)(\([^)]+\))?$/);
+        if (match) {
+          const nombre = match[1].trim();
+          const rol = match[2] ? ' ' + match[2].trim() : '';
+          return `<strong>${nombre}</strong>${rol}`;
+        }
+        return `<strong>${p}</strong>`;
+      }).join(' · ');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      inicializarTextosEditables();
+      cargarTextosGuardados();
+      inicializarGraficosDefault();
+      importarDatosSeguimientoDesdeStorage();
+    });
+
+    // Escuchar mensajes desde la ventana principal
+    window.addEventListener('message', (event) => {
+      if (!event.data) return;
+      if (event.data.type === 'IMPORT_TRACKING') {
+        aplicarDatosSeguimiento(event.data.payload);
+      } else if (event.data.type === 'UPDATE_INTEGRANTES') {
+        const val = event.data.integrantes || 'Fausto Crivelli (Presidente de Portafolio) · Luciano Mora (Analista Sr) · Florencia Beluzzo (Analista Sr)';
+        const formatted = formatearAutoresHtml(val);
+        const el1 = document.getElementById('lblIntegrantesTexto');
+        if (el1) el1.innerHTML = formatted;
+        const el2 = document.getElementById('lblEditorialIntegrantes');
+        if (el2) el2.innerHTML = formatted;
+      } else if (event.data.type === 'TOGGLE_EDIT') {
+        toggleModoEdicion(event.data.active);
+      } else if (event.data.type === 'SAVE_EDITS') {
+        guardarTextosReporte();
+      } else if (event.data.type === 'RESET_ORIGINAL') {
+        restaurarOriginal();
+      }
+    });
+
+    function inicializarTextosEditables() {
+      document.querySelectorAll('.editable-text').forEach((el, idx) => {
+        if (!el.getAttribute('data-edit-id')) {
+          el.setAttribute('data-edit-id', 'tr_elem_' + idx);
+        }
+      });
+    }
+
+    function toggleModoEdicion(forzar = null) {
+      modoEdicion = (forzar !== null) ? forzar : !modoEdicion;
+      document.body.classList.toggle('modo-edicion-on', modoEdicion);
+
+      document.querySelectorAll('.editable-text').forEach(el => {
+        el.setAttribute('contenteditable', modoEdicion ? 'true' : 'false');
+      });
+
+      const btn = document.getElementById('btnFloatEdit');
+      if (btn) {
+        btn.innerHTML = modoEdicion ? '✏️ Modo Edición: ON' : '✏️ Modo Edición: OFF';
+        btn.style.background = modoEdicion ? '#16a34a' : '#d97706';
+      }
+
+      mostrarToast(modoEdicion ? '✏️ Modo Edición activado: Haz clic en cualquier texto para modificarlo' : '🔒 Modo Edición desactivado');
+    }
+
+    function guardarTextosReporte() {
+      const textos = {};
+      document.querySelectorAll('[data-edit-id]').forEach(el => {
+        const id = el.getAttribute('data-edit-id');
+        textos[id] = el.innerHTML;
+      });
+      localStorage.setItem('cfuba_tracking_report_texts', JSON.stringify(textos));
+      mostrarToast('💾 ¡Textos del informe de seguimiento guardados con éxito!');
+    }
+
+    function cargarTextosGuardados() {
+      const saved = localStorage.getItem('cfuba_tracking_report_texts');
+      if (!saved) return;
+      try {
+        const textos = JSON.parse(saved);
+        Object.keys(textos).forEach(id => {
+          const el = document.querySelector(`[data-edit-id="${id}"]`);
+          if (el) el.innerHTML = textos[id];
+        });
+      } catch(e) { console.error('Error cargando textos de seguimiento:', e); }
+    }
+
+    function restaurarOriginal() {
+      if (confirm('¿Desea restaurar todos los textos y datos originales del informe de seguimiento?')) {
+        localStorage.removeItem('cfuba_tracking_report_texts');
+        localStorage.removeItem('cfuba_last_tracking_data');
+        location.reload();
+      }
+    }
+
+    function inicializarGraficosDefault() {
+      const timeLabels = Array.from({length: 60}, (_, i) => `Día ${i+1}`);
+      const dummyPort = timeLabels.map((_, i) => 100 + i * 0.6 + Math.sin(i / 3) * 4);
+      const dummySpy = timeLabels.map((_, i) => 100 + i * 0.35 + Math.cos(i / 4) * 3);
+
+      renderGraficos(timeLabels, dummyPort, dummySpy);
+    }
+
+    function renderGraficos(labels, portCurve, spyCurve) {
+      // 1. Gráfico Equity
+      const ctxEq = document.getElementById('chartReportEquity').getContext('2d');
+      if (chartEquity) chartEquity.destroy();
+      chartEquity = new Chart(ctxEq, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Cartera Óptima Rebalanceada (Base 100)',
+              data: portCurve,
+              borderColor: '#0062ff',
+              backgroundColor: 'rgba(0, 98, 255, 0.08)',
+              borderWidth: 2.2,
+              fill: true,
+              tension: 0.15,
+              pointRadius: 0
+            },
+            {
+              label: 'SPY Benchmark (Base 100)',
+              data: spyCurve,
+              borderColor: '#091a36',
+              borderDash: [4, 4],
+              borderWidth: 1.8,
+              fill: false,
+              tension: 0.15,
+              pointRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 12, font: { size: 9, weight: '700' } } }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 8 }, maxTicksLimit: 8 } },
+            y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 8 } } }
+          }
+        }
+      });
+
+      // 2. Gráfico Drawdown Submarino
+      const portDD = calcularDrawdownSerie(portCurve);
+      const spyDD = calcularDrawdownSerie(spyCurve);
+
+      const ctxDD = document.getElementById('chartReportDD').getContext('2d');
+      if (chartDD) chartDD.destroy();
+      chartDD = new Chart(ctxDD, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Drawdown Cartera (%)',
+              data: portDD,
+              borderColor: '#dc2626',
+              backgroundColor: 'rgba(220, 38, 38, 0.15)',
+              borderWidth: 1.6,
+              fill: true,
+              pointRadius: 0
+            },
+            {
+              label: 'Drawdown SPY (%)',
+              data: spyDD,
+              borderColor: '#64748b',
+              borderDash: [3, 3],
+              borderWidth: 1.4,
+              fill: false,
+              pointRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 10, font: { size: 8, weight: '700' } } }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 8 }, maxTicksLimit: 8 } },
+            y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 8 }, callback: v => v + '%' } }
+          }
+        }
+      });
+    }
+
+    function calcularDrawdownSerie(serie) {
+      let peak = serie[0] || 100;
+      return serie.map(val => {
+        if (val > peak) peak = val;
+        return peak > 0 ? ((val - peak) / peak) * 100 : 0;
+      });
+    }
+
+    function aplicarDatosSeguimiento(data) {
+      if (!data || !data.port_equity_curve || data.port_equity_curve.length === 0) return;
+      localStorage.setItem('cfuba_last_tracking_data', JSON.stringify(data));
+
+      // 1. Título y Fechas
+      const start = data.actual_start_date || data.fecha_inicio || '2024-01-01';
+      const end = data.time_labels && data.time_labels.length > 0 ? data.time_labels[data.time_labels.length - 1] : 'Actual';
+      document.getElementById('lblDateRange').innerText = `${start} a ${end} (${data.n_velas || data.port_equity_curve.length} ruedas)`;
+
+      if (data.integrantes) {
+        const formatted = formatearAutoresHtml(data.integrantes);
+        const el1 = document.getElementById('lblIntegrantesTexto');
+        if (el1) el1.innerHTML = formatted;
+        const el2 = document.getElementById('lblEditorialIntegrantes');
+        if (el2) el2.innerHTML = formatted;
+      }
+      if (data.rebalance_freq) {
+        const rfEl = document.getElementById('lblRebalanceFreq');
+        if (rfEl) rfEl.innerText = data.rebalance_freq.charAt(0).toUpperCase() + data.rebalance_freq.slice(1);
+      }
+
+      // 1b. Composición y Ponderaciones
+      if (data.tickers && data.pesos && data.tickers.length > 0) {
+        const totalW = data.pesos.reduce((a, b) => a + b, 0);
+        const formattedItems = data.tickers.map((t, idx) => {
+          const w = data.pesos[idx] || 0;
+          const pct = totalW > 0 ? ((w / totalW) * 100).toFixed(1).replace('.', ',') : w.toFixed(1).replace('.', ',');
+          return { ticker: t, pct: pct };
+        });
+
+        const compSub = document.getElementById('lblComposicionTexto');
+        if (compSub) {
+          compSub.innerHTML = formattedItems.map(item => `<strong>${item.ticker}</strong> (${item.pct}%)`).join(' · ');
+        }
+        const compBadges = document.getElementById('lblComposicionBadgesPanel');
+        if (compBadges) {
+          compBadges.innerHTML = formattedItems.map(item => `<span class="comp-badge"><strong>${item.ticker}</strong> ${item.pct}%</span>`).join('');
+        }
+      }
+
+      // 2. KPIs
+      const portGain = data.tracking_gain_pct || 0;
+      const portFirst = data.port_equity_curve[0] || 100;
+      const portLast = data.port_equity_curve[data.port_equity_curve.length - 1] || 100;
+      const spyFirst = data.spy_equity_curve && data.spy_equity_curve.length > 0 ? data.spy_equity_curve[0] : 100;
+      const spyLast = data.spy_equity_curve && data.spy_equity_curve.length > 0 ? data.spy_equity_curve[data.spy_equity_curve.length - 1] : 100;
+      const spyGain = spyFirst > 0 ? ((spyLast - spyFirst) / spyFirst) * 100 : 0;
+      const alpha = portGain - spyGain;
+
+      document.getElementById('tkGain').innerText = (portGain >= 0 ? '+' : '') + portGain.toFixed(1) + '%';
+      document.getElementById('tkSpyGain').innerText = (spyGain >= 0 ? '+' : '') + spyGain.toFixed(1) + '%';
+      document.getElementById('tkAlpha').innerText = (alpha >= 0 ? '+' : '') + alpha.toFixed(1) + '%';
+      document.getElementById('tkMaxDd').innerText = '-' + (data.tracking_max_dd_pct || 0).toFixed(1) + '%';
+      document.getElementById('tkSharpe').innerText = (data.tracking_sharpe || 0).toFixed(2);
+      document.getElementById('tkMaxStag').innerText = (data.tracking_max_stagnation_days || 0) + ' Ruedas';
+
+      // 3. Métricas Financieras del Período Exacto
+      // 3.1 Drawdown y Máximo Drawdown
+      const portDdSerie = calcularDrawdownSerie(data.port_equity_curve);
+      const spyDdSerie = (data.spy_equity_curve && data.spy_equity_curve.length > 0)
+        ? calcularDrawdownSerie(data.spy_equity_curve)
+        : [];
+      const mddPort = data.tracking_max_dd_pct !== undefined
+        ? data.tracking_max_dd_pct
+        : Math.abs(portDdSerie.reduce((min, v) => (v < min ? v : min), 0));
+      const mddSpy = spyDdSerie.length > 0
+        ? Math.abs(spyDdSerie.reduce((min, v) => (v < min ? v : min), 0))
+        : 0;
+      const diffMdd = mddSpy - mddPort; // Positivo indica que la cartera tuvo menor caída que el benchmark
+
+      // 3.2 Volatilidad Anualizada del Período
+      const nRuedas = data.port_equity_curve.length;
+      const diasAnual = 252;
+      let volPortPct = (data.vol_anual || 0) * 100;
+      let volSpyPct = 0;
+      let sharpeSpy = 0;
+
+      if (data.spy_equity_curve && data.spy_equity_curve.length > 1) {
+        const spyRets = [];
+        for (let i = 1; i < data.spy_equity_curve.length; i++) {
+          const prev = data.spy_equity_curve[i - 1];
+          const curr = data.spy_equity_curve[i];
+          if (prev > 0) spyRets.push((curr / prev) - 1.0);
+        }
+        if (spyRets.length > 1) {
+          const meanSpyRet = spyRets.reduce((a, b) => a + b, 0) / spyRets.length;
+          const varSpy = spyRets.reduce((acc, r) => acc + Math.pow(r - meanSpyRet, 2), 0) / (spyRets.length - 1);
+          const volSpyDiaria = Math.sqrt(varSpy);
+          volSpyPct = volSpyDiaria * Math.sqrt(diasAnual) * 100;
+
+          const rfAnual = (data.rf_rate || 0.04);
+          const annSpyRet = meanSpyRet * diasAnual;
+          if (volSpyPct > 0) {
+            sharpeSpy = (annSpyRet - rfAnual) / (volSpyPct / 100);
+          }
+        }
+      }
+
+      if (volPortPct === 0 && data.port_equity_curve.length > 1) {
+        const portRets = [];
+        for (let i = 1; i < data.port_equity_curve.length; i++) {
+          const prev = data.port_equity_curve[i - 1];
+          const curr = data.port_equity_curve[i];
+          if (prev > 0) portRets.push((curr / prev) - 1.0);
+        }
+        if (portRets.length > 1) {
+          const meanPortRet = portRets.reduce((a, b) => a + b, 0) / portRets.length;
+          const varPort = portRets.reduce((acc, r) => acc + Math.pow(r - meanPortRet, 2), 0) / (portRets.length - 1);
+          volPortPct = Math.sqrt(varPort) * Math.sqrt(diasAnual) * 100;
+        }
+      }
+
+      const diffVol = volPortPct - volSpyPct;
+      const sharpePort = data.tracking_sharpe || 0;
+      const diffSharpe = sharpePort - sharpeSpy;
+
+      // 3.3 Estancamiento del Período
+      let spyPeak = data.spy_equity_curve && data.spy_equity_curve.length > 0 ? data.spy_equity_curve[0] : 100;
+      let spyMaxStag = 0;
+      let spyCurrentStag = 0;
+      if (data.spy_equity_curve) {
+        for (let i = 0; i < data.spy_equity_curve.length; i++) {
+          const val = data.spy_equity_curve[i];
+          if (val >= spyPeak) {
+            spyPeak = val;
+            spyCurrentStag = 0;
+          } else {
+            spyCurrentStag++;
+            if (spyCurrentStag > spyMaxStag) spyMaxStag = spyCurrentStag;
+          }
+        }
+      }
+      const portStag = data.tracking_max_stagnation_days || 0;
+      const diffStag = portStag - spyMaxStag;
+
+      // Actualizar Tabla Comparativa
+      const elGainPort = document.getElementById('tblGainPort');
+      const elGainSpy = document.getElementById('tblGainSpy');
+      const elGainDiff = document.getElementById('tblGainDiff');
+      if (elGainPort) elGainPort.innerText = (portGain >= 0 ? '+' : '') + portGain.toFixed(1) + '%';
+      if (elGainSpy) elGainSpy.innerText = (spyGain >= 0 ? '+' : '') + spyGain.toFixed(1) + '%';
+      if (elGainDiff) {
+        elGainDiff.innerText = (alpha >= 0 ? '+' : '') + alpha.toFixed(1) + '%';
+        elGainDiff.style.color = alpha >= 0 ? 'var(--green-up)' : 'var(--red-down)';
+      }
+
+      const elVolPort = document.getElementById('tblVolPort');
+      const elVolSpy = document.getElementById('tblVolSpy');
+      const elVolDiff = document.getElementById('tblVolDiff');
+      if (elVolPort) elVolPort.innerText = volPortPct.toFixed(1) + '%';
+      if (elVolSpy) elVolSpy.innerText = volSpyPct.toFixed(1) + '%';
+      if (elVolDiff) {
+        elVolDiff.innerText = (diffVol >= 0 ? '+' : '') + diffVol.toFixed(1) + '%';
+        elVolDiff.style.color = diffVol <= 0 ? 'var(--green-up)' : 'var(--red-down)'; // Menor volatilidad suele ser favorable
+      }
+
+      const elSharpePort = document.getElementById('tblSharpePort');
+      const elSharpeSpy = document.getElementById('tblSharpeSpy');
+      const elSharpeDiff = document.getElementById('tblSharpeDiff');
+      if (elSharpePort) elSharpePort.innerText = sharpePort.toFixed(2);
+      if (elSharpeSpy) elSharpeSpy.innerText = sharpeSpy.toFixed(2);
+      if (elSharpeDiff) {
+        elSharpeDiff.innerText = (diffSharpe >= 0 ? '+' : '') + diffSharpe.toFixed(2);
+        elSharpeDiff.style.color = diffSharpe >= 0 ? 'var(--green-up)' : 'var(--red-down)';
+      }
+
+      const elMddPort = document.getElementById('tblMddPort');
+      const elMddSpy = document.getElementById('tblMddSpy');
+      const elMddDiff = document.getElementById('tblMddDiff');
+      if (elMddPort) elMddPort.innerText = '-' + mddPort.toFixed(1) + '%';
+      if (elMddSpy) elMddSpy.innerText = '-' + mddSpy.toFixed(1) + '%';
+      if (elMddDiff) {
+        elMddDiff.innerText = (diffMdd >= 0 ? '+' : '') + diffMdd.toFixed(1) + '%';
+        elMddDiff.style.color = diffMdd >= 0 ? 'var(--green-up)' : 'var(--red-down)';
+      }
+
+      const elStagPort = document.getElementById('tblStagPort');
+      const elStagSpy = document.getElementById('tblStagSpy');
+      const elStagDiff = document.getElementById('tblStagDiff');
+      if (elStagPort) elStagPort.innerText = portStag + ' Días';
+      if (elStagSpy) elStagSpy.innerText = spyMaxStag + ' Días';
+      if (elStagDiff) {
+        elStagDiff.innerText = (diffStag <= 0 ? '' : '+') + diffStag + ' Días';
+        elStagDiff.style.color = diffStag <= 0 ? 'var(--green-up)' : 'var(--red-down)'; // Menos estancamiento es favorable
+      }
+
+      // 4. Gráficos
+      const labels = data.time_labels || Array.from({length: data.port_equity_curve.length}, (_, i) => `Rueda ${i+1}`);
+      renderGraficos(labels, data.port_equity_curve, data.spy_equity_curve || []);
+
+      mostrarToast('📥 ¡Datos del seguimiento sincronizados en el informe!');
+    }
+
+    function importarDatosSeguimientoDesdeStorage() {
+      const saved = localStorage.getItem('cfuba_last_tracking_data');
+      if (saved) {
+        try { aplicarDatosSeguimiento(JSON.parse(saved)); } catch(e){}
+      }
+    }
+
+    function mostrarToast(msg) {
+      const toast = document.getElementById('toastReport');
+      if (toast) {
+        toast.innerHTML = `<span>${msg}</span>`;
+        toast.style.display = 'flex';
+        setTimeout(() => { toast.style.display = 'none'; }, 3500);
+      }
+    }
+  </script>
+</body>
+</html>

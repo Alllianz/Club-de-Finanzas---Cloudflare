@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import { useState } from "react";
 import { SiteHeader, SiteFooter } from "@/app/components/site-shell";
 import { useMemberAuth } from "@/context/MemberAuthContext";
+import { PortfolioEngineViewer } from "@/app/portfolio/components/PortfolioEngineViewer";
 
 // Carga dinámica del simulador interactivo para optimizar el bundle
 const PortfolioSimulator = dynamic(
@@ -25,6 +27,7 @@ const PortfolioSimulator = dynamic(
 
 export default function MiembrosPortafolioPage() {
   const { member, isLoading } = useMemberAuth();
+  const [activeTab, setActiveTab] = useState<"engine" | "simulator">("engine");
 
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans text-[#334155]">
@@ -110,8 +113,40 @@ export default function MiembrosPortafolioPage() {
               </div>
             </div>
 
-            {/* Simulador Interactivo */}
-            <PortfolioSimulator />
+            {/* Selector de Herramienta */}
+            <div className="flex justify-center border-b border-[#e5e7eb] pb-4">
+              <div className="inline-flex rounded-xl border border-[#e5e7eb] bg-[#ffffff] p-1.5 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("engine")}
+                  className={`flex items-center gap-2 rounded-lg px-6 py-2.5 text-xs font-bold uppercase tracking-[0.12em] transition-all ${
+                    activeTab === "engine"
+                      ? "bg-[#0b1727] text-white shadow-xs"
+                      : "text-[#64748b] hover:text-[#0b1727]"
+                  }`}
+                >
+                  <span>⚡ Motor Cuantitativo Completo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("simulator")}
+                  className={`flex items-center gap-2 rounded-lg px-6 py-2.5 text-xs font-bold uppercase tracking-[0.12em] transition-all ${
+                    activeTab === "simulator"
+                      ? "bg-[#0b1727] text-white shadow-xs"
+                      : "text-[#64748b] hover:text-[#0b1727]"
+                  }`}
+                >
+                  <span>📊 Simulador Rápido</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido según pestaña */}
+            {activeTab === "engine" ? (
+              <PortfolioEngineViewer />
+            ) : (
+              <PortfolioSimulator />
+            )}
           </div>
         </main>
       )}
