@@ -22,15 +22,19 @@ export function SiteHeader({ currentPath }: NavProps) {
   return (
     <header className="sticky top-0 z-50 border-b border-[#e5e7eb] bg-[#ffffff]/98 backdrop-blur-md transition-all shadow-xs">
       <Topline />
-      <div className="mx-auto flex w-[min(1420px,94vw)] items-center justify-between py-2 md:py-2.5">
-        {/* Logo ampliado con jerarquía institucional */}
-        <Link href="/" className="group flex items-center transition-opacity hover:opacity-95" aria-label="Club de Finanzas UBA - Inicio">
-          <div className="relative flex h-16 sm:h-20 md:h-24 lg:h-26 w-[260px] sm:w-[360px] md:w-[460px] lg:w-[560px] items-center justify-start">
+      <div className="mx-auto flex w-[min(1420px,94vw)] items-center justify-between py-3.5 sm:py-4 md:py-5 min-h-[76px] sm:min-h-[84px] md:min-h-[90px]">
+        {/* Logo del Club de Finanzas UBA con margen y espacio dedicado */}
+        <Link
+          href="/"
+          className="group flex items-center my-1 sm:my-1.5 md:my-2 transition-opacity hover:opacity-95"
+          aria-label="Club de Finanzas UBA - Inicio"
+        >
+          <div className="relative flex h-11 sm:h-12 md:h-14 lg:h-15 w-[190px] sm:w-[230px] md:w-[270px] lg:w-[305px] items-center justify-start py-0.5">
             <Image
               src="/clubdefinanzasubalogohorizontal.png"
               alt="Club de Finanzas UBA"
-              width={640}
-              height={120}
+              width={500}
+              height={100}
               priority
               className="h-full w-auto object-contain object-left"
             />
