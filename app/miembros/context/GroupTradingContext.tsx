@@ -169,7 +169,27 @@ export const GroupTradingProvider: React.FC<{
         setAvailableTournaments(allTours.value);
         if (targetGameId) {
           const match = allTours.value.find((t) => t.id === targetGameId);
-          if (match) setTournament(match);
+          if (match) {
+            setTournament((prev) => {
+              if (
+                prev &&
+                prev.id === match.id &&
+                prev.startDate === match.startDate &&
+                prev.endDate === match.endDate &&
+                prev.title === match.title &&
+                prev.initialCapital === match.initialCapital &&
+                prev.maxLeverage === match.maxLeverage &&
+                prev.allowShort === match.allowShort &&
+                prev.rebalanceDay === match.rebalanceDay &&
+                prev.tradingStartTime === match.tradingStartTime &&
+                prev.tradingEndTime === match.tradingEndTime &&
+                prev.maxTradesPerWeek === match.maxTradesPerWeek
+              ) {
+                return prev;
+              }
+              return match;
+            });
+          }
         }
       }
     } catch (err) {

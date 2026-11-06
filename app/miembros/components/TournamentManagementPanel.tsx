@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useGroupTrading } from "../context/GroupTradingContext";
 import {
   parseTournamentDateBoundary,
@@ -48,27 +48,34 @@ export const TournamentManagementPanel: React.FC = () => {
     null
   );
 
-  // Inicializar formulario con los datos del torneo activo
+  const loadedTournamentIdRef = useRef<string | null>(null);
+
+  // Inicializar formulario SOLO en la primera carga del torneo o al cambiar de competencia
+  // Protege el estado del formulario para que el polling de 6s en segundo plano no borre lo que Allianz escribe
   useEffect(() => {
     if (tournament) {
-      setTitle(
-        tournament.title ||
-          (marketType === "FUTURES"
-            ? "Torneo Oficial de Futuros & Derivados - Club de Finanzas UBA"
-            : "Torneo Oficial - Club de Finanzas UBA")
-      );
-      setDescription(tournament.description || "");
-      setAllowShort(tournament.allowShort);
-      setMaxLeverage(tournament.maxLeverage || (marketType === "FUTURES" ? 100 : 10));
-      setInitialCapitalInput(String(tournament.initialCapital || 10000));
-      setRebalanceDay(tournament.rebalanceDay || "");
-      setTradingStartTime(tournament.tradingStartTime || "");
-      setTradingEndTime(tournament.tradingEndTime || "");
-      setMaxTradesPerWeek(tournament.maxTradesPerWeek || 0);
-      setStartDate(toDateTimeLocalString(tournament.startDate));
-      setEndDate(toDateTimeLocalString(tournament.endDate));
+      const tournamentKey = `${tournament.id}_${marketType}`;
+      if (loadedTournamentIdRef.current !== tournamentKey) {
+        loadedTournamentIdRef.current = tournamentKey;
+        setTitle(
+          tournament.title ||
+            (marketType === "FUTURES"
+              ? "Torneo Oficial de Futuros & Derivados - Club de Finanzas UBA"
+              : "Torneo Oficial - Club de Finanzas UBA")
+        );
+        setDescription(tournament.description || "");
+        setAllowShort(tournament.allowShort);
+        setMaxLeverage(tournament.maxLeverage || (marketType === "FUTURES" ? 100 : 10));
+        setInitialCapitalInput(String(tournament.initialCapital || 10000));
+        setRebalanceDay(tournament.rebalanceDay || "");
+        setTradingStartTime(tournament.tradingStartTime || "");
+        setTradingEndTime(tournament.tradingEndTime || "");
+        setMaxTradesPerWeek(tournament.maxTradesPerWeek || 0);
+        setStartDate(toDateTimeLocalString(tournament.startDate));
+        setEndDate(toDateTimeLocalString(tournament.endDate));
+      }
     }
-  }, [tournament, marketType]);
+  }, [tournament?.id, marketType]);
 
   const handleDeleteTournament = async (tId: string, tTitle: string) => {
     if (currentGroup?.id !== "allianz") return;
@@ -140,6 +147,7 @@ export const TournamentManagementPanel: React.FC = () => {
       });
       setResetBalances(false);
       setCreateNew(false);
+      loadedTournamentIdRef.current = null;
       await refreshTournament();
     } else {
       setFeedback({
