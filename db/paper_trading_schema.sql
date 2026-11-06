@@ -70,11 +70,33 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     timestamp INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS paper_orders (
+    id TEXT PRIMARY KEY,
+    game_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    asset_type TEXT NOT NULL,
+    order_side TEXT NOT NULL,
+    position_side TEXT NOT NULL,
+    order_type TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    filled_quantity REAL DEFAULT 0,
+    limit_price REAL,
+    leverage REAL NOT NULL DEFAULT 1,
+    margin_mode TEXT DEFAULT 'ISOLATED',
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    created_at INTEGER NOT NULL,
+    filled_at INTEGER
+);
+
 CREATE INDEX IF NOT EXISTS idx_paper_positions_lookup 
     ON paper_positions(game_id, user_id);
 
 CREATE INDEX IF NOT EXISTS idx_paper_trades_lookup 
     ON paper_trades(game_id, user_id, timestamp);
+
+CREATE INDEX IF NOT EXISTS idx_paper_orders_lookup 
+    ON paper_orders(game_id, user_id, status);
 
 -- Inicializar Torneo Institucional Club de Finanzas UBA 2026
 INSERT OR IGNORE INTO games (

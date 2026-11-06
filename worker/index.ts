@@ -19,6 +19,12 @@ import {
   deleteTournament,
   DEFAULT_GAME_ID,
 } from "./paper-engine";
+import {
+  createPaperOrder,
+  getPaperOrders,
+  cancelPaperOrder,
+  matchPendingOrders,
+} from "./limit-order-engine";
 import { ejecutarOptimizacionCartera } from "./portfolio-quant/markowitz-optimizer";
 import { ejecutarIsOos } from "./portfolio-quant/is-oos-engine";
 import { ejecutarTracking } from "./portfolio-quant/tracking-engine";
@@ -187,6 +193,9 @@ export default {
         }
 
         const targetGameId = url.searchParams.get("gameId")?.trim() || undefined;
+        // Emparejar órdenes límite pendientes contra cotizaciones spot en tiempo real (Zero Look-Ahead Bias)
+        await matchPendingOrders(env.DB, groupId, targetGameId);
+
         const result = await getMarkedPortfolio(env.DB, groupId, targetGameId);
         return new Response(
           JSON.stringify({ success: true, data: result }),
@@ -204,7 +213,7 @@ export default {
     }
 
     // =========================================================================
-    // 4. EJECUTAR ORDEN DE COMPRA / VENTA (APERTURA CON APALANCAMIENTO)
+    // 4. EJECUTAR O REGISTRAR ORDEN (MERCADO O LÍMITE - COMPRA Y VENTA CON SOLO LONG)
     // =========================================================================
     if (url.pathname === "/api/paper/orders" && request.method === "POST") {
       try {
@@ -219,8 +228,11 @@ export default {
           groupId?: string;
           gameId?: string;
           symbol?: string;
+          orderSide?: "BUY" | "SELL";
           positionSide?: "LONG" | "SHORT";
+          orderType?: "MARKET" | "LIMIT";
           quantity?: number;
+          limitPrice?: number;
           leverage?: number;
           marginMode?: "ISOLATED" | "CROSS";
         };
@@ -233,10 +245,13 @@ export default {
           );
         }
 
-        const orderResult = await executeOrder(env.DB, groupId, {
+        const orderResult = await createPaperOrder(env.DB, groupId, {
           symbol: body.symbol || "",
+          orderSide: body.orderSide,
           positionSide: body.positionSide,
+          orderType: body.orderType,
           quantity: Number(body.quantity),
+          limitPrice: body.limitPrice,
           leverage: body.leverage,
           marginMode: body.marginMode,
           gameId: body.gameId?.trim() || undefined,
@@ -258,7 +273,91 @@ export default {
     }
 
     // =========================================================================
-    // 5. CERRAR POSICIÓN ABIERTA
+    // 4.1 CONSULTAR ÓRDENES DEL GRUPO (CON EMPAREJAMIENTO DE LÍMITES EN TIEMPO REAL)
+    // =========================================================================
+    if (url.pathname.startsWith("/api/paper/orders/") && request.method === "GET") {
+      try {
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Base de datos D1 no disponible." }),
+            { status: 503, headers: corsHeaders }
+          );
+        }
+
+        const groupId = decodeURIComponent(url.pathname.split("/orders/")[1] || "").trim();
+        if (!groupId) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Identificador de grupo requerido." }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+
+        const targetGameId = url.searchParams.get("gameId")?.trim() || undefined;
+        // Emparejar órdenes límite pendientes
+        await matchPendingOrders(env.DB, groupId, targetGameId);
+
+        const orders = await getPaperOrders(env.DB, groupId, targetGameId);
+        return new Response(
+          JSON.stringify({ success: true, data: orders }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al consultar órdenes.",
+          }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+    }
+
+    // =========================================================================
+    // 4.2 CANCELAR ORDEN LÍMITE PENDIENTE
+    // =========================================================================
+    if (url.pathname === "/api/paper/orders/cancel" && request.method === "POST") {
+      try {
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Base de datos D1 no disponible." }),
+            { status: 503, headers: corsHeaders }
+          );
+        }
+
+        const body = (await request.json().catch(() => ({}))) as {
+          groupId?: string;
+          orderId?: string;
+          gameId?: string;
+        };
+
+        const groupId = body.groupId?.trim();
+        const orderId = body.orderId?.trim();
+        if (!groupId || !orderId) {
+          return new Response(
+            JSON.stringify({ success: false, error: "groupId y orderId son requeridos." }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+
+        const targetGameId = body.gameId?.trim() || undefined;
+        const cancelResult = await cancelPaperOrder(env.DB, groupId, orderId, targetGameId);
+        return new Response(
+          JSON.stringify({ success: true, data: cancelResult }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al cancelar orden.",
+          }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+    }
+
+    // =========================================================================
+    // 5. CERRAR POSICIÓN ABIERTA (TOTAL O PARCIAL)
     // =========================================================================
     if (url.pathname === "/api/paper/positions/close" && request.method === "POST") {
       try {
@@ -273,6 +372,7 @@ export default {
           groupId?: string;
           positionId?: string;
           gameId?: string;
+          quantity?: number;
         };
 
         const groupId = body.groupId?.trim();
@@ -285,7 +385,8 @@ export default {
         }
 
         const targetGameId = body.gameId?.trim() || undefined;
-        const closeResult = await closePosition(env.DB, groupId, positionId, targetGameId);
+        const closeQty = body.quantity ? Number(body.quantity) : undefined;
+        const closeResult = await closePosition(env.DB, groupId, positionId, targetGameId, closeQty);
         return new Response(
           JSON.stringify({ success: true, data: closeResult }),
           { status: 200, headers: corsHeaders }

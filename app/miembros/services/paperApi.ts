@@ -6,6 +6,7 @@ import {
   GroupPortfolio,
   OpenPosition,
   ExecutedTrade,
+  PendingOrder,
   LeaderboardItem,
   TournamentSettings,
   SaveTournamentParams,
@@ -61,8 +62,11 @@ export async function fetchPortfolio(
 export async function submitOrder(payload: {
   groupId: string;
   symbol: string;
-  positionSide: "LONG" | "SHORT";
+  orderSide?: "BUY" | "SELL";
+  positionSide?: "LONG" | "SHORT";
+  orderType?: "MARKET" | "LIMIT";
   quantity: number;
+  limitPrice?: number;
   leverage: number;
   marginMode?: "ISOLATED" | "CROSS";
   gameId?: string;
@@ -79,11 +83,41 @@ export async function submitOrder(payload: {
   return data.data;
 }
 
-export async function closePositionApi(groupId: string, positionId: string, gameId?: string) {
+export async function fetchPendingOrders(groupId: string, gameId?: string): Promise<PendingOrder[]> {
+  const query = gameId ? `?gameId=${encodeURIComponent(gameId)}` : "";
+  const res = await fetch(`${API_BASE}/api/paper/orders/${encodeURIComponent(groupId)}${query}`);
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || "Error al consultar órdenes.");
+  }
+  return data.data || [];
+}
+
+export async function cancelOrderApi(groupId: string, orderId: string, gameId?: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/paper/orders/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupId, orderId, gameId }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || "Error al cancelar la orden." };
+    }
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Error de red al cancelar orden.",
+    };
+  }
+}
+
+export async function closePositionApi(groupId: string, positionId: string, gameId?: string, quantity?: number) {
   const res = await fetch(`${API_BASE}/api/paper/positions/close`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ groupId, positionId, gameId }),
+    body: JSON.stringify({ groupId, positionId, gameId, quantity }),
   });
   const data = await res.json();
   if (!res.ok || !data.success) {

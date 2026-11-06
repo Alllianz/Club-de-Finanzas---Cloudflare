@@ -40,11 +40,37 @@ export const PositionsTable: React.FC = () => {
       alert(dateStatus.reason || "Operación rechazada: el torneo no se encuentra en período operativo habilitado.");
       return;
     }
-    if (!confirm(`¿Confirmás el cierre a precio de mercado de la posición en ${symbol}?`)) {
+    if (!confirm(`¿Confirmás el cierre total a precio de mercado de la posición en ${symbol}?`)) {
       return;
     }
     setClosingId(posId);
     await closePosition(posId);
+    setClosingId(null);
+  };
+
+  const handlePartialClose = async (posId: string, symbol: string, currentQty: number) => {
+    if (!dateStatus.allowed) {
+      alert(dateStatus.reason || "Operación rechazada: el torneo no se encuentra en período operativo habilitado.");
+      return;
+    }
+    const defaultQty = (currentQty / 2);
+    const formattedDefault = defaultQty >= 1 ? defaultQty.toFixed(2) : defaultQty.toFixed(4);
+    const input = prompt(
+      `Ingresá la cantidad a vender de ${symbol} (Tenencia actual: ${currentQty}):`,
+      formattedDefault
+    );
+    if (!input) return;
+    const qty = parseFloat(input);
+    if (isNaN(qty) || qty <= 0) {
+      alert("La cantidad ingresada debe ser mayor a 0.");
+      return;
+    }
+    if (qty > currentQty) {
+      alert(`La cantidad a cerrar (${qty}) no puede superar tu tenencia actual (${currentQty}).`);
+      return;
+    }
+    setClosingId(posId);
+    await closePosition(posId, qty);
     setClosingId(null);
   };
 
@@ -175,23 +201,38 @@ export const PositionsTable: React.FC = () => {
                       </div>
                     </td>
                     <td className="py-3.5 px-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleClose(pos.id, pos.symbol)}
-                        disabled={isActionLoading || closingId === pos.id || !dateStatus.allowed}
-                        title={!dateStatus.allowed ? dateStatus.reason : undefined}
-                        className={`rounded border px-2.5 py-1 text-[11px] font-bold transition disabled:opacity-50 ${
-                          !dateStatus.allowed
-                            ? "border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed"
-                            : "border-red-200 bg-red-50 text-red-700 hover:bg-red-600 hover:text-white"
-                        }`}
-                      >
-                        {!dateStatus.allowed
-                          ? "Bloqueado"
-                          : closingId === pos.id
-                          ? "Cerrando..."
-                          : "Cerrar Mercado"}
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleClose(pos.id, pos.symbol)}
+                          disabled={isActionLoading || closingId === pos.id || !dateStatus.allowed}
+                          title={!dateStatus.allowed ? dateStatus.reason : "Cerrar el 100% de la posición"}
+                          className={`rounded border px-2 py-1 text-[11px] font-bold transition disabled:opacity-50 ${
+                            !dateStatus.allowed
+                              ? "border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed"
+                              : "border-red-200 bg-red-50 text-red-700 hover:bg-red-600 hover:text-white"
+                          }`}
+                        >
+                          {!dateStatus.allowed
+                            ? "Bloqueado"
+                            : closingId === pos.id
+                            ? "Cerrando..."
+                            : "Cerrar"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePartialClose(pos.id, pos.symbol, pos.quantity)}
+                          disabled={isActionLoading || closingId === pos.id || !dateStatus.allowed}
+                          title={!dateStatus.allowed ? dateStatus.reason : "Cerrar una porción de la tenencia comprada"}
+                          className={`rounded border px-2 py-1 text-[11px] font-bold transition disabled:opacity-50 ${
+                            !dateStatus.allowed
+                              ? "border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed"
+                              : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white"
+                          }`}
+                        >
+                          Parcial
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

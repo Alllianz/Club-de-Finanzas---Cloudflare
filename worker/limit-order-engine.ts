@@ -1,0 +1,861 @@
+// Motor Ultra-Modular de Órdenes Límite, Ejecución Parcial y Cumplimiento Solo Long
+// Basado en Aegis Engine - Zero Look-Ahead Bias (t <= T)
+
+import {
+  D1Database,
+  OrderRecord,
+  PositionRecord,
+  PortfolioRecord,
+  TournamentRecord,
+  TradeRecord,
+} from "./types";
+import { fetchLiveMarketQuote } from "./market-feed";
+import {
+  checkTournamentDateRange,
+  getActiveTournament,
+  getTournamentById,
+  checkRebalanceWindow,
+  checkWeeklyTradeLimit,
+  computeOrderFee,
+  calculateLiquidationPrice,
+  ensurePortfolioSeed,
+  DEFAULT_GAME_ID,
+  INITIAL_CAPITAL,
+  MAX_LEVERAGE,
+} from "./paper-engine";
+
+let ordersTableInitialized = false;
+
+/**
+ * Garantiza la existencia de la tabla paper_orders y sus índices en SQLite D1
+ */
+export async function ensurePaperOrdersTable(db: D1Database): Promise<void> {
+  if (ordersTableInitialized) return;
+  ordersTableInitialized = true;
+
+  try {
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS paper_orders (
+          id TEXT PRIMARY KEY,
+          game_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          asset_type TEXT NOT NULL,
+          order_side TEXT NOT NULL,
+          position_side TEXT NOT NULL,
+          order_type TEXT NOT NULL,
+          quantity REAL NOT NULL,
+          filled_quantity REAL DEFAULT 0,
+          limit_price REAL,
+          leverage REAL NOT NULL DEFAULT 1,
+          margin_mode TEXT DEFAULT 'ISOLATED',
+          status TEXT NOT NULL DEFAULT 'PENDING',
+          created_at INTEGER NOT NULL,
+          filled_at INTEGER
+        )`
+      )
+      .run();
+
+    await db
+      .prepare(
+        `CREATE INDEX IF NOT EXISTS idx_paper_orders_lookup 
+         ON paper_orders(game_id, user_id, status)`
+      )
+      .run();
+  } catch {
+    // Si la tabla o índice ya existen, continuar
+  }
+}
+
+/**
+ * Obtiene la posición LONG abierta para un símbolo específico
+ */
+export async function getOpenLongPosition(
+  db: D1Database,
+  gameId: string,
+  groupId: string,
+  symbol: string
+): Promise<PositionRecord | null> {
+  return await db
+    .prepare(
+      `SELECT * FROM paper_positions
+       WHERE game_id = ? AND user_id = ? AND symbol = ? AND side = 'LONG'`
+    )
+    .bind(gameId, groupId, symbol)
+    .first<PositionRecord>();
+}
+
+/**
+ * Calcula la cantidad de unidades reservadas en órdenes de venta límite PENDING para un símbolo
+ */
+export async function getReservedSellQuantity(
+  db: D1Database,
+  gameId: string,
+  groupId: string,
+  symbol: string,
+  excludeOrderId?: string
+): Promise<number> {
+  const query = excludeOrderId
+    ? `SELECT SUM(quantity - filled_quantity) as total_reserved 
+       FROM paper_orders 
+       WHERE game_id = ? AND user_id = ? AND symbol = ? AND order_side = 'SELL' AND status = 'PENDING' AND id != ?`
+    : `SELECT SUM(quantity - filled_quantity) as total_reserved 
+       FROM paper_orders 
+       WHERE game_id = ? AND user_id = ? AND symbol = ? AND order_side = 'SELL' AND status = 'PENDING'`;
+
+  const stmt = excludeOrderId
+    ? db.prepare(query).bind(gameId, groupId, symbol, excludeOrderId)
+    : db.prepare(query).bind(gameId, groupId, symbol);
+
+  const row = await stmt.first<{ total_reserved: number | null }>();
+  return Number(row?.total_reserved) || 0;
+}
+
+/**
+ * Ejecuta el cierre parcial o total de una posición existente
+ */
+export async function executeClosePositionOperation(
+  db: D1Database,
+  pos: PositionRecord,
+  closeQty: number,
+  exitPrice: number,
+  nowMs: number,
+  orderId?: string
+) {
+  const isFullClose = closeQty >= pos.quantity - 1e-9;
+  const executedCloseQty = isFullClose ? pos.quantity : closeQty;
+  const notional = exitPrice * executedCloseQty;
+  const closeFee = computeOrderFee(pos.asset_type as "Crypto" | "Stock" | "Futures", executedCloseQty, notional);
+
+  let grossPnl = 0;
+  if (pos.side === "LONG") {
+    grossPnl = (exitPrice - pos.entry_price) * executedCloseQty;
+  } else {
+    grossPnl = (pos.entry_price - exitPrice) * executedCloseQty;
+  }
+  const netRealizedPnl = grossPnl - closeFee;
+
+  // Margen proporcional a liberar
+  const marginRatio = executedCloseQty / pos.quantity;
+  const releasedMargin = pos.initial_margin * marginRatio;
+  const cashReturned = releasedMargin + netRealizedPnl;
+
+  const tradeId = `tr_close_${nowMs}_${Math.random().toString(36).substring(2, 7)}`;
+  const closeOrderSide: "BUY" | "SELL" = pos.side === "LONG" ? "SELL" : "BUY";
+
+  // 1. Insertar Trade
+  await db
+    .prepare(
+      `INSERT INTO paper_trades (
+         id, game_id, user_id, symbol, asset_type, order_side,
+         position_side, quantity, price, fee, realized_pnl, leverage,
+         margin_mode, timestamp
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      tradeId,
+      pos.game_id,
+      pos.user_id,
+      pos.symbol,
+      pos.asset_type,
+      closeOrderSide,
+      pos.side,
+      executedCloseQty,
+      exitPrice,
+      closeFee,
+      netRealizedPnl,
+      pos.leverage,
+      pos.margin_mode,
+      nowMs
+    )
+    .run();
+
+  // 2. Modificar o eliminar la posición
+  if (isFullClose) {
+    await db
+      .prepare("DELETE FROM paper_positions WHERE id = ?")
+      .bind(pos.id)
+      .run();
+  } else {
+    const remainingQty = pos.quantity - executedCloseQty;
+    const remainingMargin = Math.max(0, pos.initial_margin - releasedMargin);
+    await db
+      .prepare(
+        `UPDATE paper_positions 
+         SET quantity = ?, initial_margin = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .bind(remainingQty, remainingMargin, nowMs, pos.id)
+      .run();
+  }
+
+  // 3. Reintegrar efectivo y registrar PnL en portafolio
+  await db
+    .prepare(
+      `UPDATE paper_portfolios
+       SET cash_balance = cash_balance + ?,
+           realized_pnl = realized_pnl + ?,
+           total_fees = total_fees + ?,
+           updated_at = ?
+       WHERE game_id = ? AND user_id = ?`
+    )
+    .bind(cashReturned, netRealizedPnl, closeFee, nowMs, pos.game_id, pos.user_id)
+    .run();
+
+  return {
+    tradeId,
+    executedCloseQty,
+    exitPrice,
+    grossPnl,
+    closeFee,
+    netRealizedPnl,
+    cashReturned,
+    isFullClose,
+  };
+}
+
+/**
+ * Ejecuta apertura o adición de posición LONG/SHORT
+ */
+export async function executeOpenPositionOperation(
+  db: D1Database,
+  gameId: string,
+  groupId: string,
+  symbol: string,
+  assetType: "Crypto" | "Stock" | "Futures",
+  positionSide: "LONG" | "SHORT",
+  orderSide: "BUY" | "SELL",
+  quantity: number,
+  executedPrice: number,
+  leverage: number,
+  marginMode: "ISOLATED" | "CROSS",
+  initialCap: number,
+  nowMs: number
+) {
+  const notional = executedPrice * quantity;
+  const fee = computeOrderFee(assetType, quantity, notional);
+  const initialMargin = notional / leverage;
+  const requiredFunds = initialMargin + fee;
+
+  // Verificar caja
+  const port = await ensurePortfolioSeed(db, groupId, gameId, initialCap);
+  if (port.cash_balance < requiredFunds) {
+    throw new Error(
+      `Poder de compra insuficiente: requiere $${requiredFunds.toFixed(2)} ($${initialMargin.toFixed(2)} margen + $${fee.toFixed(2)} comisión) y dispone de $${port.cash_balance.toFixed(2)}.`
+    );
+  }
+
+  const tradeId = `tr_${nowMs}_${Math.random().toString(36).substring(2, 7)}`;
+  const positionId = `pos_${nowMs}_${Math.random().toString(36).substring(2, 7)}`;
+  const liquidationPrice = calculateLiquidationPrice(executedPrice, leverage, positionSide);
+
+  // Débito atómico de caja
+  const debitRes = await db
+    .prepare(
+      `UPDATE paper_portfolios
+       SET cash_balance = cash_balance - ?,
+           total_fees = total_fees + ?,
+           updated_at = ?
+       WHERE game_id = ? AND user_id = ? AND cash_balance >= ?`
+    )
+    .bind(requiredFunds, fee, nowMs, gameId, groupId, requiredFunds)
+    .run();
+
+  if (!debitRes.success) {
+    throw new Error("No se pudo debitar el saldo. Saldo insuficiente o colisión de concurrencia.");
+  }
+
+  // Insertar Trade
+  await db
+    .prepare(
+      `INSERT INTO paper_trades (
+         id, game_id, user_id, symbol, asset_type, order_side,
+         position_side, quantity, price, fee, realized_pnl, leverage,
+         margin_mode, timestamp
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?)`
+    )
+    .bind(
+      tradeId,
+      gameId,
+      groupId,
+      symbol,
+      assetType,
+      orderSide,
+      positionSide,
+      quantity,
+      executedPrice,
+      fee,
+      leverage,
+      marginMode,
+      nowMs
+    )
+    .run();
+
+  // Crear o sumar a posición existente del mismo símbolo y lado
+  const existingPos = await db
+    .prepare(
+      `SELECT * FROM paper_positions 
+       WHERE game_id = ? AND user_id = ? AND symbol = ? AND side = ?`
+    )
+    .bind(gameId, groupId, symbol, positionSide)
+    .first<PositionRecord>();
+
+  if (existingPos) {
+    const totalQty = existingPos.quantity + quantity;
+    const weightedEntryPrice =
+      (existingPos.entry_price * existingPos.quantity + executedPrice * quantity) / totalQty;
+    const totalMargin = existingPos.initial_margin + initialMargin;
+    const newLiqPrice = calculateLiquidationPrice(weightedEntryPrice, leverage, positionSide);
+
+    await db
+      .prepare(
+        `UPDATE paper_positions
+         SET quantity = ?, entry_price = ?, current_price = ?, initial_margin = ?, liquidation_price = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .bind(totalQty, weightedEntryPrice, executedPrice, totalMargin, newLiqPrice, nowMs, existingPos.id)
+      .run();
+  } else {
+    await db
+      .prepare(
+        `INSERT INTO paper_positions (
+           id, game_id, user_id, symbol, asset_type, side, quantity,
+           entry_price, current_price, leverage, margin_mode, initial_margin,
+           unrealized_pnl, liquidation_price, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?)`
+      )
+      .bind(
+        positionId,
+        gameId,
+        groupId,
+        symbol,
+        assetType,
+        positionSide,
+        quantity,
+        executedPrice,
+        executedPrice,
+        leverage,
+        marginMode,
+        initialMargin,
+        liquidationPrice,
+        nowMs
+      )
+      .run();
+  }
+
+  return {
+    tradeId,
+    positionId: existingPos ? existingPos.id : positionId,
+    executedPrice,
+    initialMargin,
+    fee,
+    liquidationPrice,
+  };
+}
+
+export interface CreatePaperOrderInput {
+  symbol: string;
+  orderSide?: "BUY" | "SELL";
+  positionSide?: "LONG" | "SHORT";
+  orderType?: "MARKET" | "LIMIT";
+  quantity: number;
+  limitPrice?: number;
+  leverage?: number;
+  marginMode?: "ISOLATED" | "CROSS";
+  gameId?: string;
+}
+
+/**
+ * Punto de entrada principal para creación y ejecución de órdenes (Market y Limit)
+ * con cumplimiento de Solo Long y soporte para órdenes y ventas parciales
+ */
+export async function createPaperOrder(
+  db: D1Database,
+  groupId: string,
+  input: CreatePaperOrderInput
+) {
+  await ensurePaperOrdersTable(db);
+
+  const symbol = input.symbol.trim().toUpperCase();
+  const quantity = Number(input.quantity);
+  const orderType: "MARKET" | "LIMIT" = input.orderType === "LIMIT" ? "LIMIT" : "MARKET";
+  const limitPrice = input.limitPrice ? Number(input.limitPrice) : undefined;
+  const leverage = Math.min(Math.max(1, Number(input.leverage) || 1), MAX_LEVERAGE);
+  const marginMode: "ISOLATED" | "CROSS" = input.marginMode === "CROSS" ? "CROSS" : "ISOLATED";
+
+  if (!symbol) throw new Error("El símbolo es requerido.");
+  if (isNaN(quantity) || quantity <= 0) throw new Error("La cantidad debe ser mayor a 0.");
+  if (orderType === "LIMIT" && (!limitPrice || isNaN(limitPrice) || limitPrice <= 0)) {
+    throw new Error("Para una orden límite se requiere especificar un precio límite válido mayor a 0.");
+  }
+
+  const tournament = input.gameId ? await getTournamentById(db, input.gameId) : await getActiveTournament(db);
+  const gameId = tournament?.id || input.gameId || DEFAULT_GAME_ID;
+  const initialCap = tournament?.initial_capital || INITIAL_CAPITAL;
+  const maxAllowedLeverage = tournament?.max_leverage || MAX_LEVERAGE;
+  const isSoloLong = tournament ? !tournament.allow_short : false;
+
+  // 1. Control de Fechas del Torneo (Zero Look-Ahead Bias)
+  const dateCheck = checkTournamentDateRange(tournament);
+  if (!dateCheck.allowed) {
+    throw new Error(dateCheck.reason || "Operación rechazada: el torneo no se encuentra en período hábil para operar.");
+  }
+
+  // 2. Ventana de rebalanceo y cupo semanal (excepto Allianz)
+  if (groupId.toLowerCase() !== "allianz") {
+    const windowCheck = checkRebalanceWindow(tournament);
+    if (!windowCheck.allowed) {
+      throw new Error(windowCheck.reason || "Operación rechazada por restricciones de ventana de rebalanceo.");
+    }
+
+    if (tournament && tournament.max_trades_per_week && tournament.max_trades_per_week > 0) {
+      const limitCheck = await checkWeeklyTradeLimit(db, gameId, groupId, tournament.max_trades_per_week);
+      if (!limitCheck.allowed) {
+        throw new Error(limitCheck.reason || "Límite semanal de operaciones superado.");
+      }
+    }
+  }
+
+  if (tournament && leverage > maxAllowedLeverage) {
+    throw new Error(`El apalancamiento máximo permitido en este torneo es ${maxAllowedLeverage}x.`);
+  }
+
+  // Determinar orderSide y positionSide
+  let orderSide: "BUY" | "SELL" = input.orderSide === "SELL" ? "SELL" : "BUY";
+  if (!input.orderSide && input.positionSide) {
+    orderSide = input.positionSide === "SHORT" ? "SELL" : "BUY";
+  }
+
+  let positionSide: "LONG" | "SHORT" = input.positionSide
+    ? input.positionSide
+    : orderSide === "BUY"
+    ? "LONG"
+    : "SHORT";
+
+  // REGLA CRÍTICA SOLO LONG:
+  // "Si tenemos solo long activado la de venta no se ejecutara salvo tengamos la misma cantidad comprada. Tambien pueden ser parciales."
+  let existingLongPos: PositionRecord | null = null;
+  if (isSoloLong) {
+    if (orderSide === "SELL") {
+      // En modo Solo Long, no se permite abrir Short. Una venta es forzosamente el cierre (parcial o total) de una posición LONG comprada.
+      positionSide = "LONG";
+
+      existingLongPos = await getOpenLongPosition(db, gameId, groupId, symbol);
+      if (!existingLongPos || existingLongPos.quantity <= 0) {
+        throw new Error(
+          `Operación rechazada: En modo Solo Long únicamente podés emitir órdenes de venta si poseés una posición comprada (LONG) en ${symbol}. Actualmente tu tenencia es de 0 unidades.`
+        );
+      }
+
+      const reservedQty = await getReservedSellQuantity(db, gameId, groupId, symbol);
+      const availableToSell = existingLongPos.quantity - reservedQty;
+
+      if (quantity > availableToSell + 1e-9) {
+        throw new Error(
+          `Operación rechazada: La cantidad a vender (${quantity}) excede tu posición comprada disponible (${availableToSell.toFixed(4)} ${symbol}${reservedQty > 0 ? ` - ${reservedQty.toFixed(4)} unidades ya reservadas en órdenes pendientes` : ""}).`
+        );
+      }
+    } else {
+      // Compra en Solo Long
+      positionSide = "LONG";
+    }
+  } else {
+    // Si Shorting está permitido, validar apalancamiento y reglas
+    if (positionSide === "SHORT" && !tournament?.allow_short) {
+      throw new Error("Las operaciones en corto (SHORT) no están habilitadas en este torneo.");
+    }
+  }
+
+  // Cotización en vivo (Anti Look-Ahead Bias)
+  const quote = await fetchLiveMarketQuote(symbol);
+  const nowMs = Date.now();
+  const orderId = `ord_${nowMs}_${Math.random().toString(36).substring(2, 7)}`;
+
+  // Verificar si la orden es de mercado o si es límite ejecutable inmediatamente
+  let canFillImmediately = false;
+  let executionPrice = quote.price;
+
+  if (orderType === "MARKET") {
+    canFillImmediately = true;
+    executionPrice = quote.price;
+  } else if (orderType === "LIMIT" && limitPrice) {
+    if (orderSide === "BUY") {
+      // Compra límite: se llena si el precio de mercado es menor o igual al límite (tick.price <= limit_p)
+      if (quote.price <= limitPrice) {
+        canFillImmediately = true;
+        executionPrice = Math.min(quote.price, limitPrice);
+      }
+    } else {
+      // Venta límite: se llena si el precio de mercado es mayor o igual al límite (tick.price >= limit_p)
+      if (quote.price >= limitPrice) {
+        canFillImmediately = true;
+        executionPrice = Math.max(quote.price, limitPrice);
+      }
+    }
+  }
+
+  // Caso 1: Se llena de inmediato (Market o Limit ejecutable)
+  if (canFillImmediately) {
+    if (orderSide === "SELL" && isSoloLong && existingLongPos) {
+      // Cierre parcial o total de la posición LONG existente
+      const closeResult = await executeClosePositionOperation(
+        db,
+        existingLongPos,
+        quantity,
+        executionPrice,
+        nowMs,
+        orderId
+      );
+
+      // Registrar orden como FILLED
+      await db
+        .prepare(
+          `INSERT INTO paper_orders (
+             id, game_id, user_id, symbol, asset_type, order_side,
+             position_side, order_type, quantity, filled_quantity, limit_price,
+             leverage, margin_mode, status, created_at, filled_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FILLED', ?, ?)`
+        )
+        .bind(
+          orderId,
+          gameId,
+          groupId,
+          symbol,
+          quote.asset_type,
+          orderSide,
+          positionSide,
+          orderType,
+          quantity,
+          quantity,
+          limitPrice || null,
+          leverage,
+          marginMode,
+          nowMs,
+          nowMs
+        )
+        .run();
+
+      return {
+        success: true,
+        orderId,
+        isFilled: true,
+        orderType,
+        orderSide,
+        executedPrice: executionPrice,
+        quantity,
+        tradeId: closeResult.tradeId,
+        netRealizedPnl: closeResult.netRealizedPnl,
+        isFullClose: closeResult.isFullClose,
+        message: closeResult.isFullClose
+          ? `Posición comprada en ${symbol} cerrada en su totalidad a $${executionPrice.toFixed(2)}.`
+          : `Venta parcial de ${quantity} unidades de ${symbol} ejecutada a $${executionPrice.toFixed(2)}. Restan ${(existingLongPos.quantity - quantity).toFixed(4)} unidades.`,
+      };
+    } else {
+      // Apertura de posición (BUY o SHORT si permitido)
+      const openResult = await executeOpenPositionOperation(
+        db,
+        gameId,
+        groupId,
+        symbol,
+        quote.asset_type,
+        positionSide,
+        orderSide,
+        quantity,
+        executionPrice,
+        leverage,
+        marginMode,
+        initialCap,
+        nowMs
+      );
+
+      // Registrar orden como FILLED
+      await db
+        .prepare(
+          `INSERT INTO paper_orders (
+             id, game_id, user_id, symbol, asset_type, order_side,
+             position_side, order_type, quantity, filled_quantity, limit_price,
+             leverage, margin_mode, status, created_at, filled_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FILLED', ?, ?)`
+        )
+        .bind(
+          orderId,
+          gameId,
+          groupId,
+          symbol,
+          quote.asset_type,
+          orderSide,
+          positionSide,
+          orderType,
+          quantity,
+          quantity,
+          limitPrice || null,
+          leverage,
+          marginMode,
+          nowMs,
+          nowMs
+        )
+        .run();
+
+      return {
+        success: true,
+        orderId,
+        isFilled: true,
+        orderType,
+        orderSide,
+        executedPrice: executionPrice,
+        quantity,
+        tradeId: openResult.tradeId,
+        positionId: openResult.positionId,
+        message: `Orden ${orderType} ${orderSide} de ${quantity} ${symbol} ejecutada a $${executionPrice.toFixed(2)}.`,
+      };
+    }
+  }
+
+  // Caso 2: Orden Límite No Ejecutable de Inmediato -> Estado PENDING
+  // Si es BUY, verificar solvencia de efectivo para la orden límite
+  if (orderSide === "BUY") {
+    const notional = (limitPrice || quote.price) * quantity;
+    const estFee = computeOrderFee(quote.asset_type, quantity, notional);
+    const requiredMargin = notional / leverage;
+    const totalRequired = requiredMargin + estFee;
+
+    const port = await ensurePortfolioSeed(db, groupId, gameId, initialCap);
+    if (port.cash_balance < totalRequired) {
+      throw new Error(
+        `Efectivo insuficiente para colocar orden límite: Se requieren $${totalRequired.toFixed(2)} ($${requiredMargin.toFixed(2)} de margen + $${estFee.toFixed(2)} de comisión) a precio límite $${limitPrice?.toFixed(2)} y el grupo dispone de $${port.cash_balance.toFixed(2)}.`
+      );
+    }
+  }
+
+  // Insertar orden PENDING
+  await db
+    .prepare(
+      `INSERT INTO paper_orders (
+         id, game_id, user_id, symbol, asset_type, order_side,
+         position_side, order_type, quantity, filled_quantity, limit_price,
+         leverage, margin_mode, status, created_at, filled_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?, 'PENDING', ?, NULL)`
+    )
+    .bind(
+      orderId,
+      gameId,
+      groupId,
+      symbol,
+      quote.asset_type,
+      orderSide,
+      positionSide,
+      orderType,
+      quantity,
+      limitPrice || null,
+      leverage,
+      marginMode,
+      nowMs
+    )
+    .run();
+
+  return {
+    success: true,
+    orderId,
+    isFilled: false,
+    orderType,
+    orderSide,
+    limitPrice,
+    quantity,
+    status: "PENDING",
+    message:
+      orderSide === "BUY"
+        ? `Orden Límite de Compra registrada para ${quantity} ${symbol} a $${limitPrice?.toFixed(2)}. Se ejecutará cuando el precio sea ≤ $${limitPrice?.toFixed(2)} (Actual: $${quote.price.toFixed(2)}).`
+        : `Orden Límite de Venta registrada para ${quantity} ${symbol} a $${limitPrice?.toFixed(2)}. Se ejecutará cuando el precio sea ≥ $${limitPrice?.toFixed(2)} (Actual: $${quote.price.toFixed(2)}).`,
+  };
+}
+
+/**
+ * Consulta las órdenes pendientes o recientes de un grupo
+ */
+export async function getPaperOrders(
+  db: D1Database,
+  groupId: string,
+  targetGameId?: string,
+  statusFilter?: string
+): Promise<OrderRecord[]> {
+  await ensurePaperOrdersTable(db);
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
+  const gameId = tournament?.id || targetGameId || DEFAULT_GAME_ID;
+
+  let query = "SELECT * FROM paper_orders WHERE game_id = ? AND user_id = ?";
+  const params: unknown[] = [gameId, groupId];
+
+  if (statusFilter) {
+    query += " AND status = ?";
+    params.push(statusFilter);
+  }
+
+  query += " ORDER BY created_at DESC LIMIT 50";
+
+  const res = await db.prepare(query).bind(...params).all<OrderRecord>();
+  return res.results || [];
+}
+
+/**
+ * Cancela una orden límite en estado PENDING
+ */
+export async function cancelPaperOrder(
+  db: D1Database,
+  groupId: string,
+  orderId: string,
+  targetGameId?: string
+): Promise<{ success: boolean; message: string }> {
+  await ensurePaperOrdersTable(db);
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
+  const gameId = tournament?.id || targetGameId || DEFAULT_GAME_ID;
+
+  const order = await db
+    .prepare("SELECT * FROM paper_orders WHERE id = ? AND game_id = ? AND user_id = ?")
+    .bind(orderId, gameId, groupId)
+    .first<OrderRecord>();
+
+  if (!order) {
+    throw new Error("La orden no existe o no pertenece a tu grupo.");
+  }
+
+  if (order.status !== "PENDING") {
+    throw new Error(`La orden no se puede cancelar porque su estado actual es ${order.status}.`);
+  }
+
+  await db
+    .prepare("UPDATE paper_orders SET status = 'CANCELLED' WHERE id = ?")
+    .bind(orderId)
+    .run();
+
+  return {
+    success: true,
+    message: `Orden límite ${order.id} en ${order.symbol} cancelada correctamente.`,
+  };
+}
+
+/**
+ * Motor de Emparejamiento en Vivo para Órdenes Pendientes
+ * Verifica los ticks actuales de mercado para todas las órdenes PENDING del grupo
+ * respetando estrictamente Anti Look-Ahead Bias (t <= T)
+ */
+export async function matchPendingOrders(
+  db: D1Database,
+  groupId?: string,
+  targetGameId?: string
+): Promise<{ matchedCount: number; ordersFilled: string[] }> {
+  await ensurePaperOrdersTable(db);
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
+  const gameId = tournament?.id || targetGameId || DEFAULT_GAME_ID;
+
+  // Si el torneo no está en período activo, no se procesan emparejamientos
+  const dateCheck = checkTournamentDateRange(tournament);
+  if (!dateCheck.allowed) {
+    return { matchedCount: 0, ordersFilled: [] };
+  }
+
+  let query = "SELECT * FROM paper_orders WHERE game_id = ? AND status = 'PENDING'";
+  const params: unknown[] = [gameId];
+  if (groupId) {
+    query += " AND user_id = ?";
+    params.push(groupId);
+  }
+
+  const pending = await db.prepare(query).bind(...params).all<OrderRecord>();
+  const orders = pending.results || [];
+
+  if (orders.length === 0) {
+    return { matchedCount: 0, ordersFilled: [] };
+  }
+
+  let matchedCount = 0;
+  const ordersFilled: string[] = [];
+  const initialCap = tournament?.initial_capital || INITIAL_CAPITAL;
+  const isSoloLong = tournament ? !tournament.allow_short : false;
+
+  for (const ord of orders) {
+    try {
+      if (!ord.limit_price || ord.limit_price <= 0) continue;
+
+      const quote = await fetchLiveMarketQuote(ord.symbol);
+      const nowMs = Date.now();
+
+      // Zero Look-Ahead Bias: comprobación estricta de tiempo monotónico
+      if (ord.created_at > nowMs) {
+        continue;
+      }
+
+      let isTriggered = false;
+      let fillPrice = quote.price;
+
+      if (ord.order_side === "BUY") {
+        // Compra límite: tick.price <= limit_price
+        if (quote.price <= ord.limit_price) {
+          isTriggered = true;
+          fillPrice = Math.min(quote.price, ord.limit_price);
+        }
+      } else {
+        // Venta límite: tick.price >= limit_price
+        if (quote.price >= ord.limit_price) {
+          isTriggered = true;
+          fillPrice = Math.max(quote.price, ord.limit_price);
+        }
+      }
+
+      if (!isTriggered) continue;
+
+      // Ejecutar la orden disparada
+      if (ord.order_side === "SELL" && isSoloLong) {
+        const longPos = await getOpenLongPosition(db, ord.game_id, ord.user_id, ord.symbol);
+        if (!longPos || longPos.quantity <= 0) {
+          // No hay posición para cerrar en Solo Long: rechazar
+          await db
+            .prepare("UPDATE paper_orders SET status = 'REJECTED' WHERE id = ?")
+            .bind(ord.id)
+            .run();
+          continue;
+        }
+
+        const closeQty = Math.min(ord.quantity, longPos.quantity);
+        await executeClosePositionOperation(db, longPos, closeQty, fillPrice, nowMs, ord.id);
+
+        await db
+          .prepare("UPDATE paper_orders SET status = 'FILLED', filled_quantity = ?, filled_at = ? WHERE id = ?")
+          .bind(closeQty, nowMs, ord.id)
+          .run();
+
+        matchedCount++;
+        ordersFilled.push(ord.id);
+      } else {
+        // Ejecución de compra o venta normal
+        await executeOpenPositionOperation(
+          db,
+          ord.game_id,
+          ord.user_id,
+          ord.symbol,
+          quote.asset_type,
+          ord.position_side,
+          ord.order_side,
+          ord.quantity,
+          fillPrice,
+          ord.leverage,
+          ord.margin_mode,
+          initialCap,
+          nowMs
+        );
+
+        await db
+          .prepare("UPDATE paper_orders SET status = 'FILLED', filled_quantity = ?, filled_at = ? WHERE id = ?")
+          .bind(ord.quantity, nowMs, ord.id)
+          .run();
+
+        matchedCount++;
+        ordersFilled.push(ord.id);
+      }
+    } catch {
+      // Continuar con las siguientes órdenes si una falla puntualmente por fondos
+    }
+  }
+
+  return { matchedCount, ordersFilled };
+}

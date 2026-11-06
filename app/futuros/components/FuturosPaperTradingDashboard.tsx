@@ -6,6 +6,7 @@ import { MarketTickerBar } from "@/app/miembros/components/MarketTickerBar";
 import { PortfolioOverviewCard } from "@/app/miembros/components/PortfolioOverviewCard";
 import { TradingOrderCard } from "@/app/miembros/components/TradingOrderCard";
 import { PositionsTable } from "@/app/miembros/components/PositionsTable";
+import { PendingOrdersTable } from "@/app/miembros/components/PendingOrdersTable";
 import { TradesHistoryTable } from "@/app/miembros/components/TradesHistoryTable";
 import { GroupLeaderboard } from "@/app/miembros/components/GroupLeaderboard";
 import { TournamentSelector } from "@/app/miembros/components/TournamentSelector";
@@ -91,6 +92,7 @@ export const FuturosPaperTradingDashboard: React.FC = () => {
         </div>
         <div className="space-y-8 lg:col-span-7">
           <PositionsTable />
+          <PendingOrdersTable />
           <TradesHistoryTable />
         </div>
       </div>

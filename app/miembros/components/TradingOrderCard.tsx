@@ -13,7 +13,7 @@ export const TradingOrderCard: React.FC<{
   initialSymbol = "BTC-USD",
   customTickers,
 }) => {
-  const { placeOrder, isActionLoading, portfolio, tournament } = useGroupTrading();
+  const { placeOrder, isActionLoading, portfolio, positions, pendingOrders, tournament } = useGroupTrading();
 
   const [symbol, setSymbol] = useState<string>(initialSymbol);
 
@@ -22,7 +22,11 @@ export const TradingOrderCard: React.FC<{
       setSymbol(initialSymbol);
     }
   }, [initialSymbol]);
-  const [positionSide, setPositionSide] = useState<"LONG" | "SHORT">("LONG");
+
+  // Tipos de orden y sentido de operación
+  const [orderType, setOrderType] = useState<"MARKET" | "LIMIT">("MARKET");
+  const [orderSide, setOrderSide] = useState<"BUY" | "SELL">("BUY");
+  const [limitPrice, setLimitPrice] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("0.1");
   const [leverage, setLeverage] = useState<number>(1);
   const [marginMode, setMarginMode] = useState<"ISOLATED" | "CROSS">("ISOLATED");
@@ -31,7 +35,7 @@ export const TradingOrderCard: React.FC<{
     null
   );
 
-  // Cotización ultra-rápida y en vivo (WebSocket 1s para Crypto / Edge Cache para Acciones)
+  // Cotización ultra-rápida y en vivo
   const {
     quote,
     isLoading: quoteLoading,
@@ -40,21 +44,37 @@ export const TradingOrderCard: React.FC<{
     error: quoteError,
   } = useLiveQuote(symbol);
 
-  // Asegurar cumplimiento estricto de las reglas del torneo activo
+  const isSoloLong = tournament ? !tournament.allowShort : false;
+
+  // Encontrar posición actual comprada para este símbolo
+  const currentLongPos = positions.find(
+    (p) => p.symbol.toUpperCase() === symbol.toUpperCase() && p.side === "LONG"
+  );
+  const ownedQty = currentLongPos?.quantity || 0;
+
+  // Unidades comprometidas en órdenes límite de venta pendientes
+  const reservedSellQty =
+    pendingOrders
+      ?.filter(
+        (o) =>
+          o.symbol.toUpperCase() === symbol.toUpperCase() &&
+          o.order_side === "SELL" &&
+          o.status === "PENDING"
+      )
+      .reduce((acc, o) => acc + (o.quantity - o.filled_quantity), 0) || 0;
+
+  const availableToSell = Math.max(0, ownedQty - reservedSellQty);
+
+  // Reglas del torneo sobre apalancamiento
   useEffect(() => {
     if (tournament) {
-      // 1. Si Short no está permitido, forzar posición LONG
-      if (!tournament.allowShort && positionSide === "SHORT") {
-        setPositionSide("LONG");
-      }
-      // 2. Limitar apalancamiento al máximo del torneo
       if (tournament.maxLeverage && leverage > tournament.maxLeverage) {
         setLeverage(tournament.maxLeverage);
       }
     }
-  }, [tournament, positionSide, leverage]);
+  }, [tournament, leverage]);
 
-  // Ajustar cantidad default inteligente según activo seleccionado
+  // Si cambia el quote y limitPrice está vacío o el ticker cambió, auto-asignar cantidad inteligente
   const lastNormalizedSymbol = useRef<string>("");
   useEffect(() => {
     if (quote && lastNormalizedSymbol.current !== quote.symbol) {
@@ -65,29 +85,34 @@ export const TradingOrderCard: React.FC<{
       } else {
         setQuantity("10");
       }
+      if (orderType === "LIMIT" && !limitPrice) {
+        setLimitPrice(quote.price.toString());
+      }
     }
-  }, [quote]);
+  }, [quote, orderType, limitPrice]);
 
   // Cálculos en tiempo real
   const qtyNum = parseFloat(quantity) || 0;
   const currentPrice = quote?.price || 0;
-  const notional = currentPrice * qtyNum;
+  const limitPriceNum = parseFloat(limitPrice) || 0;
+  const effectivePrice = orderType === "LIMIT" && limitPriceNum > 0 ? limitPriceNum : currentPrice;
+  const notional = effectivePrice * qtyNum;
   const initialMargin = leverage > 0 ? notional / leverage : notional;
-  
+
   // Estimación de comisiones (5 bps Crypto, $0.005/acción Stock mín $1)
   const estFee =
     quote?.asset_type === "Crypto"
-      ? (notional * 0.0005)
+      ? notional * 0.0005
       : Math.max(1.0, Math.min(qtyNum * 0.005, notional * 0.01));
 
   // Estimación de precio de liquidación
   let estLiqPrice = 0;
-  if (leverage > 1 && currentPrice > 0) {
+  if (leverage > 1 && effectivePrice > 0) {
     const mmr = 0.005;
-    if (positionSide === "LONG") {
-      estLiqPrice = Math.max(0, currentPrice * (1.0 - 1.0 / leverage + mmr));
+    if (orderSide === "BUY" || isSoloLong) {
+      estLiqPrice = Math.max(0, effectivePrice * (1.0 - 1.0 / leverage + mmr));
     } else {
-      estLiqPrice = currentPrice * (1.0 + 1.0 / leverage - mmr);
+      estLiqPrice = effectivePrice * (1.0 + 1.0 / leverage - mmr);
     }
   }
 
@@ -111,6 +136,11 @@ export const TradingOrderCard: React.FC<{
       return;
     }
 
+    if (orderType === "LIMIT" && (!limitPriceNum || limitPriceNum <= 0)) {
+      setOrderFeedback({ type: "error", text: "Debés ingresar un precio límite válido mayor a 0." });
+      return;
+    }
+
     if (quote?.asset_type === "Stock" && !quote.is_market_open) {
       setOrderFeedback({
         type: "error",
@@ -119,28 +149,51 @@ export const TradingOrderCard: React.FC<{
       return;
     }
 
-    const availableCash = portfolio?.cash_balance ?? 10000;
-    if (initialMargin + estFee > availableCash) {
-      setOrderFeedback({
-        type: "error",
-        text: `Liquidez insuficiente: Requerís $${(initialMargin + estFee).toFixed(2)} y disponés de $${availableCash.toFixed(2)}.`,
-      });
-      return;
+    // Regla Solo Long para órdenes de venta
+    if (isSoloLong && orderSide === "SELL") {
+      if (ownedQty <= 0) {
+        setOrderFeedback({
+          type: "error",
+          text: `En modo Solo Long no podés vender ${symbol} porque tu tenencia actual es de 0 unidades. Debés comprar primero.`,
+        });
+        return;
+      }
+
+      if (qtyNum > availableToSell + 1e-9) {
+        setOrderFeedback({
+          type: "error",
+          text: `La cantidad a vender (${qtyNum}) excede tu tenencia disponible (${availableToSell.toFixed(4)} ${symbol}${reservedSellQty > 0 ? ` [${reservedSellQty.toFixed(4)} reservadas en órdenes pendientes]` : ""}).`,
+        });
+        return;
+      }
     }
 
-    if (positionSide === "SHORT" && tournament && !tournament.allowShort) {
-      setOrderFeedback({
-        type: "error",
-        text: "Las operaciones en corto (SHORT) no están permitidas en este torneo. Solo se permiten operaciones LONG.",
-      });
-      return;
+    // Para compras: validar efectivo disponible
+    if (orderSide === "BUY") {
+      const availableCash = portfolio?.cash_balance ?? 10000;
+      if (initialMargin + estFee > availableCash) {
+        setOrderFeedback({
+          type: "error",
+          text: `Liquidez insuficiente: Requerís $${(initialMargin + estFee).toFixed(2)} y disponés de $${availableCash.toFixed(2)}.`,
+        });
+        return;
+      }
     }
 
-    const res = await placeOrder(symbol, positionSide, qtyNum, leverage, marginMode);
+    const res = await placeOrder(
+      symbol,
+      orderSide,
+      qtyNum,
+      leverage,
+      marginMode,
+      orderType,
+      orderType === "LIMIT" ? limitPriceNum : undefined
+    );
+
     if (res.success) {
       setOrderFeedback({
         type: "success",
-        text: `¡Orden ejecutada con éxito! Posición ${positionSide} en ${symbol} registrada a $${currentPrice.toFixed(2)}.`,
+        text: res.message || `¡Orden ${orderType} ${orderSide} procesada con éxito para ${symbol}!`,
       });
     } else {
       setOrderFeedback({
@@ -153,6 +206,8 @@ export const TradingOrderCard: React.FC<{
   const maxAllowedLeverage = tournament?.maxLeverage || (customTickers ? 100 : 10);
   const availableTickers = customTickers || POPULAR_TICKERS;
 
+  const isSellDisabledInSoloLong = isSoloLong && orderSide === "SELL" && availableToSell <= 0;
+
   return (
     <div className="rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-sm">
       <div className="border-b border-[#f1f5f9] pb-4">
@@ -161,7 +216,7 @@ export const TradingOrderCard: React.FC<{
           <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]">
             Terminal de Órdenes
           </span>
-          {tournament && !tournament.allowShort && (
+          {isSoloLong && (
             <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-300">
               🔒 Modo Solo Long
             </span>
@@ -174,11 +229,6 @@ export const TradingOrderCard: React.FC<{
           {tournament && tournament.tradingStartTime && tournament.tradingEndTime && (
             <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-[10px] font-bold text-indigo-800 border border-indigo-300">
               ⏰ {tournament.tradingStartTime} - {tournament.tradingEndTime} hs
-            </span>
-          )}
-          {tournament && tournament.maxTradesPerWeek && tournament.maxTradesPerWeek > 0 && (
-            <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-[10px] font-bold text-purple-800 border border-purple-300">
-              🎯 Máx. {tournament.maxTradesPerWeek} ops/sem
             </span>
           )}
           {tournament && (tournament.startDate || tournament.endDate) && (
@@ -200,10 +250,12 @@ export const TradingOrderCard: React.FC<{
           )}
         </div>
         <h3 className="mt-1 font-serif text-xl font-bold text-[#0b1727]">
-          Nueva Posición Apalancada
+          Nueva Posición {orderType === "LIMIT" ? "Límite" : "de Mercado"}
         </h3>
         <p className="mt-1 text-xs text-[#64748b]">
-          Operaciones de mercado a precio spot real sin Look-Ahead Bias.
+          {orderType === "LIMIT"
+            ? "Orden condicional con ejecución automática al tocar el precio objetivo sin Look-Ahead Bias."
+            : "Ejecución instantánea al mejor precio disponible en el libro spot."}
         </p>
       </div>
 
@@ -248,6 +300,42 @@ export const TradingOrderCard: React.FC<{
       )}
 
       <form onSubmit={handleSubmitOrder} className="mt-4 space-y-4">
+        {/* Selector de Tipo de Orden: MERCADO vs LÍMITE */}
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
+            Tipo de Orden
+          </label>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setOrderType("MARKET")}
+              className={`rounded-lg py-2.5 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                orderType === "MARKET"
+                  ? "bg-[#0b1727] text-white shadow-xs ring-1 ring-[#0b1727]"
+                  : "border border-[#e5e7eb] bg-[#fafaf9] text-[#475569] hover:bg-white"
+              }`}
+            >
+              <span>⚡ Mercado (Spot)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOrderType("LIMIT");
+                if (!limitPrice && quote) {
+                  setLimitPrice(quote.price.toString());
+                }
+              }}
+              className={`rounded-lg py-2.5 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                orderType === "LIMIT"
+                  ? "bg-[#1e3a8a] text-white shadow-xs ring-1 ring-[#1e3a8a]"
+                  : "border border-[#e5e7eb] bg-[#fafaf9] text-[#475569] hover:bg-white"
+              }`}
+            >
+              <span>🎯 Orden Límite</span>
+            </button>
+          </div>
+        </div>
+
         {/* Selector de Símbolo Rápido */}
         <div>
           <label className="block text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
@@ -355,51 +443,135 @@ export const TradingOrderCard: React.FC<{
           </div>
         ) : null}
 
-        {/* Lado de la Posición: LONG vs SHORT */}
+        {/* Sentido de la Operación: COMPRA vs VENTA */}
         <div>
           <label className="block text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
-            Dirección de la Operación
+            Sentido de la Operación
           </label>
           <div className="mt-1.5 grid grid-cols-2 gap-3">
             <button
               type="button"
-              onClick={() => setPositionSide("LONG")}
+              onClick={() => setOrderSide("BUY")}
               className={`rounded-lg border py-2.5 px-4 text-xs font-bold transition flex items-center justify-center gap-2 ${
-                positionSide === "LONG"
+                orderSide === "BUY"
                   ? "border-emerald-600 bg-emerald-600 text-white shadow-xs"
                   : "border-[#e5e7eb] bg-[#fafaf9] text-[#475569] hover:bg-white"
               }`}
             >
-              <span>▲ LONG (Alza / Compra)</span>
+              <span>▲ COMPRA {isSoloLong ? "(Long)" : ""}</span>
             </button>
             <button
               type="button"
-              disabled={tournament ? !tournament.allowShort : false}
-              onClick={() => {
-                if (tournament && !tournament.allowShort) return;
-                setPositionSide("SHORT");
-              }}
-              title={
-                tournament && !tournament.allowShort
-                  ? "Operaciones en corto (SHORT) deshabilitadas por las reglas del Torneo"
-                  : "Abrir posición corta"
-              }
+              onClick={() => setOrderSide("SELL")}
               className={`rounded-lg border py-2.5 px-4 text-xs font-bold transition flex items-center justify-center gap-2 ${
-                tournament && !tournament.allowShort
-                  ? "cursor-not-allowed border-[#e2e8f0] bg-[#f1f5f9] text-[#94a3b8] opacity-60"
-                  : positionSide === "SHORT"
+                orderSide === "SELL"
                   ? "border-red-600 bg-red-600 text-white shadow-xs"
                   : "border-[#e5e7eb] bg-[#fafaf9] text-[#475569] hover:bg-white"
               }`}
             >
               <span>
-                {tournament && !tournament.allowShort
-                  ? "🔒 SHORT (Bloqueado)"
-                  : "▼ SHORT (Baja / Venta en Corto)"}
+                {isSoloLong ? "▼ VENTA (Liquidación)" : "▼ VENTA (Short/Venta)"}
               </span>
             </button>
           </div>
         </div>
+
+        {/* Cartel Informativo y Controles de Venta Parcial para Modo Solo Long */}
+        {isSoloLong && orderSide === "SELL" && (
+          <div
+            className={`rounded-xl border p-3.5 text-xs ${
+              ownedQty <= 0
+                ? "border-amber-300 bg-amber-50 text-amber-950"
+                : "border-blue-200 bg-blue-50/70 text-blue-950"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-bold">
+                🔒 Regla Solo Long: Venta de Posición Comprada
+              </span>
+              <span className="font-mono font-bold">
+                Tenencia: {ownedQty.toFixed(4)} {symbol}
+              </span>
+            </div>
+
+            {ownedQty <= 0 ? (
+              <p className="mt-1.5 text-[11px] text-amber-800 leading-relaxed">
+                No tenés posiciones compradas en <strong>{symbol}</strong>. En modo Solo Long únicamente podés emitir órdenes de venta si poseés tenencia previa en este activo.
+              </p>
+            ) : (
+              <div className="mt-2 space-y-2">
+                <div className="flex items-center justify-between text-[11px] text-[#475569]">
+                  <span>Disponible para vender:</span>
+                  <span className="font-mono font-bold text-[#0b1727]">
+                    {availableToSell.toFixed(4)} {symbol}
+                    {reservedSellQty > 0 && (
+                      <span className="text-amber-700 ml-1 text-[10px]">
+                        ({reservedSellQty.toFixed(4)} en órdenes pendientes)
+                      </span>
+                    )}
+                  </span>
+                </div>
+
+                {/* Botones de venta parcial */}
+                <div className="flex items-center gap-1.5 pt-1">
+                  <span className="text-[10px] uppercase font-bold text-[#64748b]">
+                    Venta Parcial:
+                  </span>
+                  {[0.25, 0.5, 0.75, 1.0].map((ratio) => (
+                    <button
+                      key={ratio}
+                      type="button"
+                      disabled={availableToSell <= 0}
+                      onClick={() => {
+                        const val = availableToSell * ratio;
+                        const formatted = val >= 1 ? val.toFixed(2) : val.toFixed(4);
+                        setQuantity(formatted);
+                      }}
+                      className="flex-1 rounded border border-blue-200 bg-white py-1 text-[10px] font-bold text-blue-900 transition hover:bg-blue-100 disabled:opacity-40"
+                    >
+                      {ratio === 1.0 ? "100% (Total)" : `${ratio * 100}%`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Input de Precio Límite (Visible solo si orderType === 'LIMIT') */}
+        {orderType === "LIMIT" && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-3.5 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
+                Precio Límite ($ USD)
+              </label>
+              {quote && (
+                <button
+                  type="button"
+                  onClick={() => setLimitPrice(quote.price.toString())}
+                  className="text-[10px] font-bold text-[#1e3a8a] hover:underline"
+                >
+                  Usar Spot (${quote.price.toFixed(2)})
+                </button>
+              )}
+            </div>
+            <input
+              type="number"
+              step="any"
+              min="0.0001"
+              value={limitPrice}
+              onChange={(e) => setLimitPrice(e.target.value)}
+              placeholder="Ingresá el precio límite objetivo..."
+              required={orderType === "LIMIT"}
+              className="w-full rounded-md border border-[#93c5fd] bg-white px-3.5 py-2 font-mono text-sm text-[#0b1727] focus:border-[#1e3a8a] focus:outline-none"
+            />
+            <p className="text-[11px] font-medium text-[#1e3a8a]">
+              {orderSide === "BUY"
+                ? `📉 Compra Límite: Se ejecutará automáticamente cuando el mercado caiga a $${limitPriceNum.toFixed(2)} o menos.`
+                : `📈 Venta Límite: Se ejecutará automáticamente cuando el mercado suba a $${limitPriceNum.toFixed(2)} o más.`}
+            </p>
+          </div>
+        )}
 
         {/* Cantidad & Modo de Margen */}
         <div className="grid grid-cols-2 gap-3">
@@ -455,7 +627,7 @@ export const TradingOrderCard: React.FC<{
         <div>
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
-              Apalancamiento Regulado: <span className="font-mono text-[#1e3a8a]">{leverage}x</span>
+              Apalancamiento: <span className="font-mono text-[#1e3a8a]">{leverage}x</span>
             </label>
             <span className="font-mono text-xs font-bold text-[#1e3a8a] bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
               {leverage >= 50 ? (
@@ -503,6 +675,12 @@ export const TradingOrderCard: React.FC<{
         {/* Desglose Cuantitativo de la Orden */}
         <div className="rounded-xl border border-[#e5e7eb] bg-[#f8fafc] p-3.5 space-y-2 text-xs">
           <div className="flex justify-between text-[#64748b]">
+            <span>Precio Base Estimado:</span>
+            <span className="font-mono font-bold text-[#0b1727]">
+              ${effectivePrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+            </span>
+          </div>
+          <div className="flex justify-between text-[#64748b]">
             <span>Valor Nocional Total:</span>
             <span className="font-mono font-bold text-[#0b1727]">
               ${notional.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -534,11 +712,17 @@ export const TradingOrderCard: React.FC<{
         {/* Botón de Envío de Orden */}
         <button
           type="submit"
-          disabled={isActionLoading || quoteLoading || !quote || !dateStatus.allowed}
+          disabled={
+            isActionLoading ||
+            quoteLoading ||
+            !quote ||
+            !dateStatus.allowed ||
+            isSellDisabledInSoloLong
+          }
           className={`w-full rounded-md py-3 px-4 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-xs transition disabled:opacity-50 ${
-            !dateStatus.allowed
+            !dateStatus.allowed || isSellDisabledInSoloLong
               ? "bg-slate-400 cursor-not-allowed hover:bg-slate-400"
-              : positionSide === "LONG"
+              : orderSide === "BUY"
               ? "bg-emerald-600 hover:bg-emerald-700"
               : "bg-red-600 hover:bg-red-700"
           }`}
@@ -547,9 +731,13 @@ export const TradingOrderCard: React.FC<{
             ? dateStatus.status === "SCHEDULED"
               ? "⏳ Torneo No Iniciado (Apertura Pendiente)"
               : "🛑 Torneo Concluido (Trading Inhabilitado)"
+            : isSellDisabledInSoloLong
+            ? "🔒 Venta Bloqueada: Sin Tenencia Comprada"
             : isActionLoading
-            ? "Ejecutando en el Mercado..."
-            : `Abrir Posición ${positionSide} (${leverage}x) →`}
+            ? "Enviando Orden al Motor Cuantitativo..."
+            : orderType === "LIMIT"
+            ? `Colocar Orden Límite de ${orderSide === "BUY" ? "Compra" : "Venta"} a $${limitPriceNum.toFixed(2)} →`
+            : `Ejecutar Orden de Mercado (${orderSide === "BUY" ? "Compra" : "Venta"}) →`}
         </button>
       </form>
     </div>

@@ -6,6 +6,7 @@ import {
   GroupPortfolio,
   OpenPosition,
   ExecutedTrade,
+  PendingOrder,
   LeaderboardItem,
   TournamentSettings,
   SaveTournamentParams,
@@ -14,8 +15,10 @@ import {
   loginGroup,
   fetchPortfolio,
   fetchTradesHistory,
+  fetchPendingOrders,
   fetchLeaderboardApi,
   submitOrder,
+  cancelOrderApi,
   closePositionApi,
   fetchActiveTournament,
   fetchTournamentsList,
@@ -29,6 +32,7 @@ interface GroupTradingContextType {
   currentGroup: GroupAuthSession | null;
   portfolio: GroupPortfolio | null;
   positions: OpenPosition[];
+  pendingOrders: PendingOrder[];
   trades: ExecutedTrade[];
   leaderboard: LeaderboardItem[];
   tournament: TournamentSettings | null;
@@ -49,12 +53,15 @@ interface GroupTradingContextType {
   deleteTournament: (tournamentId: string) => Promise<{ success: boolean; error?: string }>;
   placeOrder: (
     symbol: string,
-    positionSide: "LONG" | "SHORT",
+    side: "BUY" | "SELL" | "LONG" | "SHORT",
     quantity: number,
     leverage: number,
-    marginMode?: "ISOLATED" | "CROSS"
-  ) => Promise<{ success: boolean; error?: string }>;
-  closePosition: (positionId: string) => Promise<{ success: boolean; error?: string }>;
+    marginModeOrOrderType?: "ISOLATED" | "CROSS" | "MARKET" | "LIMIT",
+    orderTypeOrLimitPrice?: "MARKET" | "LIMIT" | number,
+    limitPriceOrMarginMode?: number | "ISOLATED" | "CROSS"
+  ) => Promise<{ success: boolean; message?: string; error?: string }>;
+  cancelOrder: (orderId: string) => Promise<{ success: boolean; error?: string }>;
+  closePosition: (positionId: string, quantity?: number) => Promise<{ success: boolean; error?: string }>;
 }
 
 const GroupTradingContext = createContext<GroupTradingContextType | undefined>(undefined);
@@ -70,6 +77,7 @@ export const GroupTradingProvider: React.FC<{
   const [currentGroup, setCurrentGroup] = useState<GroupAuthSession | null>(null);
   const [portfolio, setPortfolio] = useState<GroupPortfolio | null>(null);
   const [positions, setPositions] = useState<OpenPosition[]>([]);
+  const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [trades, setTrades] = useState<ExecutedTrade[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
   const [tournament, setTournament] = useState<TournamentSettings | null>(null);
@@ -148,9 +156,10 @@ export const GroupTradingProvider: React.FC<{
       setErrorMessage(null);
       const targetGameId = selectedTournamentId || tournament?.id || undefined;
 
-      const [portData, tradesData, lbData, allTours] = await Promise.allSettled([
+      const [portData, tradesData, ordersData, lbData, allTours] = await Promise.allSettled([
         fetchPortfolio(currentGroup.id, targetGameId),
         fetchTradesHistory(currentGroup.id, targetGameId),
+        fetchPendingOrders(currentGroup.id, targetGameId),
         fetchLeaderboardApi(targetGameId),
         fetchTournamentsList(currentGroup.id, marketType),
       ]);
@@ -161,6 +170,9 @@ export const GroupTradingProvider: React.FC<{
       }
       if (tradesData.status === "fulfilled") {
         setTrades(tradesData.value);
+      }
+      if (ordersData.status === "fulfilled") {
+        setPendingOrders(ordersData.value);
       }
       if (lbData.status === "fulfilled") {
         setLeaderboard(lbData.value);
@@ -261,6 +273,7 @@ export const GroupTradingProvider: React.FC<{
     setCurrentGroup(null);
     setPortfolio(null);
     setPositions([]);
+    setPendingOrders([]);
     setTrades([]);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(TOURNAMENT_STORAGE_KEY);
@@ -268,28 +281,58 @@ export const GroupTradingProvider: React.FC<{
 
   const placeOrder = async (
     symbol: string,
-    positionSide: "LONG" | "SHORT",
+    side: "BUY" | "SELL" | "LONG" | "SHORT",
     quantity: number,
     leverage: number,
-    marginMode: "ISOLATED" | "CROSS" = "ISOLATED"
+    marginModeOrOrderType?: "ISOLATED" | "CROSS" | "MARKET" | "LIMIT",
+    orderTypeOrLimitPrice?: "MARKET" | "LIMIT" | number,
+    limitPriceOrMarginMode?: number | "ISOLATED" | "CROSS"
   ) => {
     if (!currentGroup) return { success: false, error: "No hay sesión de grupo activa." };
     setIsActionLoading(true);
     setErrorMessage(null);
     try {
+      const orderSide: "BUY" | "SELL" = (side === "SELL" || side === "SHORT") ? "SELL" : "BUY";
+      const positionSide: "LONG" | "SHORT" = (side === "SHORT" || side === "SELL") ? "SHORT" : "LONG";
+
+      let marginMode: "ISOLATED" | "CROSS" = "ISOLATED";
+      let orderType: "MARKET" | "LIMIT" = "MARKET";
+      let limitPrice: number | undefined = undefined;
+
+      if (marginModeOrOrderType === "ISOLATED" || marginModeOrOrderType === "CROSS") {
+        marginMode = marginModeOrOrderType;
+        if (orderTypeOrLimitPrice === "LIMIT" || orderTypeOrLimitPrice === "MARKET") {
+          orderType = orderTypeOrLimitPrice;
+        }
+        if (typeof limitPriceOrMarginMode === "number") {
+          limitPrice = limitPriceOrMarginMode;
+        }
+      } else if (marginModeOrOrderType === "LIMIT" || marginModeOrOrderType === "MARKET") {
+        orderType = marginModeOrOrderType;
+        if (typeof orderTypeOrLimitPrice === "number") {
+          limitPrice = orderTypeOrLimitPrice;
+        }
+        if (limitPriceOrMarginMode === "CROSS" || limitPriceOrMarginMode === "ISOLATED") {
+          marginMode = limitPriceOrMarginMode;
+        }
+      }
+
       const targetGameId = selectedTournamentId || tournament?.id || undefined;
-      await submitOrder({
+      const res = await submitOrder({
         groupId: currentGroup.id,
         symbol,
+        orderSide,
         positionSide,
+        orderType,
         quantity,
+        limitPrice,
         leverage,
         marginMode,
         gameId: targetGameId,
       });
       await refreshTradingData();
       setIsActionLoading(false);
-      return { success: true };
+      return { success: true, message: res?.message };
     } catch (err) {
       setIsActionLoading(false);
       const msg = err instanceof Error ? err.message : "Error al ejecutar la orden.";
@@ -298,13 +341,31 @@ export const GroupTradingProvider: React.FC<{
     }
   };
 
-  const closePosition = async (positionId: string) => {
+  const cancelOrder = async (orderId: string) => {
     if (!currentGroup) return { success: false, error: "No hay sesión de grupo activa." };
     setIsActionLoading(true);
     setErrorMessage(null);
     try {
       const targetGameId = selectedTournamentId || tournament?.id || undefined;
-      await closePositionApi(currentGroup.id, positionId, targetGameId);
+      const res = await cancelOrderApi(currentGroup.id, orderId, targetGameId);
+      await refreshTradingData();
+      setIsActionLoading(false);
+      return res;
+    } catch (err) {
+      setIsActionLoading(false);
+      const msg = err instanceof Error ? err.message : "Error al cancelar la orden.";
+      setErrorMessage(msg);
+      return { success: false, error: msg };
+    }
+  };
+
+  const closePosition = async (positionId: string, quantity?: number) => {
+    if (!currentGroup) return { success: false, error: "No hay sesión de grupo activa." };
+    setIsActionLoading(true);
+    setErrorMessage(null);
+    try {
+      const targetGameId = selectedTournamentId || tournament?.id || undefined;
+      await closePositionApi(currentGroup.id, positionId, targetGameId, quantity);
       await refreshTradingData();
       setIsActionLoading(false);
       return { success: true };
@@ -381,6 +442,7 @@ export const GroupTradingProvider: React.FC<{
         currentGroup,
         portfolio,
         positions,
+        pendingOrders,
         trades,
         leaderboard,
         tournament,
@@ -398,6 +460,7 @@ export const GroupTradingProvider: React.FC<{
         saveTournamentConfig,
         deleteTournament,
         placeOrder,
+        cancelOrder,
         closePosition,
       }}
     >

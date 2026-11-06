@@ -67,6 +67,25 @@ export interface ExecutedTrade {
   timestamp: number;
 }
 
+export interface PendingOrder {
+  id: string;
+  game_id: string;
+  user_id: string;
+  symbol: string;
+  asset_type: string;
+  order_side: "BUY" | "SELL";
+  position_side: "LONG" | "SHORT";
+  order_type: "MARKET" | "LIMIT";
+  quantity: number;
+  filled_quantity: number;
+  limit_price: number | null;
+  leverage: number;
+  margin_mode: "ISOLATED" | "CROSS";
+  status: "PENDING" | "FILLED" | "CANCELLED" | "REJECTED";
+  created_at: number;
+  filled_at?: number | null;
+}
+
 export interface LeaderboardItem {
   groupId: string;
   groupName: string;

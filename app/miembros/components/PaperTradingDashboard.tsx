@@ -6,6 +6,7 @@ import { MarketTickerBar } from "./MarketTickerBar";
 import { PortfolioOverviewCard } from "./PortfolioOverviewCard";
 import { TradingOrderCard } from "./TradingOrderCard";
 import { PositionsTable } from "./PositionsTable";
+import { PendingOrdersTable } from "./PendingOrdersTable";
 import { TradesHistoryTable } from "./TradesHistoryTable";
 import { GroupLeaderboard } from "./GroupLeaderboard";
 import { TournamentSelector } from "./TournamentSelector";
@@ -102,6 +103,7 @@ export const PaperTradingDashboard: React.FC = () => {
         </div>
         <div className="space-y-8 lg:col-span-7">
           <PositionsTable />
+          <PendingOrdersTable />
           <TradesHistoryTable />
         </div>
       </div>

@@ -458,9 +458,15 @@ export async function executeOrder(
 }
 
 /**
- * Cierra una posición abierta, calcula el PnL neto de comisión y reintegra el margen a la caja
+ * Cierra una posición abierta (total o parcialmente), calcula el PnL neto de comisión y reintegra el margen a la caja
  */
-export async function closePosition(db: D1Database, groupId: string, positionId: string, targetGameId?: string) {
+export async function closePosition(
+  db: D1Database,
+  groupId: string,
+  positionId: string,
+  targetGameId?: string,
+  closeQuantity?: number
+) {
   const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
   const gameId = tournament?.id || targetGameId || DEFAULT_GAME_ID;
 
@@ -490,18 +496,28 @@ export async function closePosition(db: D1Database, groupId: string, positionId:
   // Cotización en vivo para salida
   const quote = await fetchLiveMarketQuote(pos.symbol);
   const exitPrice = quote.price;
-  const notional = exitPrice * pos.quantity;
-  const closeFee = computeOrderFee(pos.asset_type as "Crypto" | "Stock", pos.quantity, notional);
+
+  const reqCloseQty = closeQuantity ? Number(closeQuantity) : pos.quantity;
+  if (isNaN(reqCloseQty) || reqCloseQty <= 0) {
+    throw new Error("La cantidad a cerrar debe ser mayor a 0.");
+  }
+  const isFullClose = reqCloseQty >= pos.quantity - 1e-9;
+  const executedCloseQty = isFullClose ? pos.quantity : reqCloseQty;
+
+  const notional = exitPrice * executedCloseQty;
+  const closeFee = computeOrderFee(pos.asset_type as "Crypto" | "Stock" | "Futures", executedCloseQty, notional);
 
   let grossPnl = 0;
   if (pos.side === "LONG") {
-    grossPnl = (exitPrice - pos.entry_price) * pos.quantity;
+    grossPnl = (exitPrice - pos.entry_price) * executedCloseQty;
   } else {
-    grossPnl = (pos.entry_price - exitPrice) * pos.quantity;
+    grossPnl = (pos.entry_price - exitPrice) * executedCloseQty;
   }
 
   const netRealizedPnl = grossPnl - closeFee;
-  const cashReturned = pos.initial_margin + netRealizedPnl;
+  const marginRatio = executedCloseQty / pos.quantity;
+  const releasedMargin = pos.initial_margin * marginRatio;
+  const cashReturned = releasedMargin + netRealizedPnl;
   const nowMs = Date.now();
   const tradeId = `tr_close_${nowMs}_${Math.random().toString(36).substring(2, 7)}`;
   const closeOrderSide: "BUY" | "SELL" = pos.side === "LONG" ? "SELL" : "BUY";
@@ -523,7 +539,7 @@ export async function closePosition(db: D1Database, groupId: string, positionId:
       pos.asset_type,
       closeOrderSide,
       pos.side,
-      pos.quantity,
+      executedCloseQty,
       exitPrice,
       closeFee,
       netRealizedPnl,
@@ -533,11 +549,25 @@ export async function closePosition(db: D1Database, groupId: string, positionId:
     )
     .run();
 
-  // Eliminar Posición
-  await db
-    .prepare("DELETE FROM paper_positions WHERE id = ? AND game_id = ? AND user_id = ?")
-    .bind(positionId, gameId, groupId)
-    .run();
+  if (isFullClose) {
+    // Eliminar Posición si se cerró por completo
+    await db
+      .prepare("DELETE FROM paper_positions WHERE id = ? AND game_id = ? AND user_id = ?")
+      .bind(positionId, gameId, groupId)
+      .run();
+  } else {
+    // Cierre Parcial: actualizar cantidad remanente y margen proporcional
+    const remainingQty = pos.quantity - executedCloseQty;
+    const remainingMargin = Math.max(0, pos.initial_margin - releasedMargin);
+    await db
+      .prepare(
+        `UPDATE paper_positions 
+         SET quantity = ?, initial_margin = ?, updated_at = ?
+         WHERE id = ? AND game_id = ? AND user_id = ?`
+      )
+      .bind(remainingQty, remainingMargin, nowMs, positionId, gameId, groupId)
+      .run();
+  }
 
   // Actualizar Caja y Métricas
   await db
@@ -555,10 +585,12 @@ export async function closePosition(db: D1Database, groupId: string, positionId:
   return {
     success: true,
     exitPrice,
+    executedCloseQty,
     grossPnl,
     closeFee,
     netRealizedPnl,
     cashReturned,
+    isFullClose,
   };
 }
 
