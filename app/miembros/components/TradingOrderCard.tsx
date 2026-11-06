@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { POPULAR_TICKERS } from "../constants/groups";
 import { useGroupTrading } from "../context/GroupTradingContext";
 import { useLiveQuote } from "../hooks/useLiveQuote";
+import { checkTournamentDateRange, formatTournamentDate } from "../utils/tournament-dates";
 
 export const TradingOrderCard: React.FC<{
   initialSymbol?: string;
@@ -90,9 +91,20 @@ export const TradingOrderCard: React.FC<{
     }
   }
 
+  // Verificación de ventana temporal del torneo (Zero Look-Ahead Bias)
+  const dateStatus = checkTournamentDateRange(tournament);
+
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     setOrderFeedback(null);
+
+    if (!dateStatus.allowed) {
+      setOrderFeedback({
+        type: "error",
+        text: dateStatus.reason || "Operación rechazada: el torneo no se encuentra en período operativo habilitado.",
+      });
+      return;
+    }
 
     if (qtyNum <= 0) {
       setOrderFeedback({ type: "error", text: "La cantidad ingresada debe ser mayor a 0." });
@@ -169,6 +181,23 @@ export const TradingOrderCard: React.FC<{
               🎯 Máx. {tournament.maxTradesPerWeek} ops/sem
             </span>
           )}
+          {tournament && (tournament.startDate || tournament.endDate) && (
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                dateStatus.status === "SCHEDULED"
+                  ? "bg-amber-100 text-amber-800 border-amber-300"
+                  : dateStatus.status === "CONCLUDED"
+                  ? "bg-red-100 text-red-800 border-red-300"
+                  : "bg-emerald-100 text-emerald-800 border-emerald-300"
+              }`}
+            >
+              {dateStatus.status === "SCHEDULED"
+                ? `⏳ Inicia: ${formatTournamentDate(tournament.startDate) || tournament.startDate}`
+                : dateStatus.status === "CONCLUDED"
+                ? `🛑 Concluido: ${formatTournamentDate(tournament.endDate) || tournament.endDate}`
+                : `🟢 Vigencia: ${tournament.startDate ? formatTournamentDate(tournament.startDate) : "Inicio"} - ${tournament.endDate ? formatTournamentDate(tournament.endDate) : "Sin fin"}`}
+            </span>
+          )}
         </div>
         <h3 className="mt-1 font-serif text-xl font-bold text-[#0b1727]">
           Nueva Posición Apalancada
@@ -177,6 +206,34 @@ export const TradingOrderCard: React.FC<{
           Operaciones de mercado a precio spot real sin Look-Ahead Bias.
         </p>
       </div>
+
+      {/* Cartel de Bloqueo por Fechas Fuera de Rango */}
+      {!dateStatus.allowed && (
+        <div
+          className={`my-4 rounded-xl border p-4 text-xs shadow-xs ${
+            dateStatus.status === "SCHEDULED"
+              ? "border-amber-300 bg-amber-50 text-amber-950"
+              : "border-red-300 bg-red-50 text-red-950"
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">
+              {dateStatus.status === "SCHEDULED" ? "⏳" : "🛑"}
+            </span>
+            <div className="space-y-1">
+              <h4 className="font-bold uppercase tracking-wide text-[11px]">
+                {dateStatus.status === "SCHEDULED"
+                  ? "Torneo Programado - Período Operativo No Iniciado"
+                  : "Torneo Finalizado - Operaciones Inhabilitadas"}
+              </h4>
+              <p className="font-medium">{dateStatus.reason}</p>
+              <p className="text-[10px] font-mono opacity-80">
+                Gobernanza institucional: las órdenes de compra y venta se encuentran bloqueadas fuera de la ventana oficial.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {orderFeedback && (
         <div
@@ -477,14 +534,20 @@ export const TradingOrderCard: React.FC<{
         {/* Botón de Envío de Orden */}
         <button
           type="submit"
-          disabled={isActionLoading || quoteLoading || !quote}
+          disabled={isActionLoading || quoteLoading || !quote || !dateStatus.allowed}
           className={`w-full rounded-md py-3 px-4 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-xs transition disabled:opacity-50 ${
-            positionSide === "LONG"
+            !dateStatus.allowed
+              ? "bg-slate-400 cursor-not-allowed hover:bg-slate-400"
+              : positionSide === "LONG"
               ? "bg-emerald-600 hover:bg-emerald-700"
               : "bg-red-600 hover:bg-red-700"
           }`}
         >
-          {isActionLoading
+          {!dateStatus.allowed
+            ? dateStatus.status === "SCHEDULED"
+              ? "⏳ Torneo No Iniciado (Apertura Pendiente)"
+              : "🛑 Torneo Concluido (Trading Inhabilitado)"
+            : isActionLoading
             ? "Ejecutando en el Mercado..."
             : `Abrir Posición ${positionSide} (${leverage}x) →`}
         </button>

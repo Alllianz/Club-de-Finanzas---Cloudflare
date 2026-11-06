@@ -26,6 +26,17 @@ function PortfolioEngineViewerInner() {
     }
   };
 
+  const handleQuickLogin = async (u: string, p: string) => {
+    setErrorMsg("");
+    const res = await login(u, p);
+    if (res.success) {
+      setShowLoginModal(false);
+      setIsOpen(true);
+    } else {
+      setErrorMsg(res.error || "Error al autenticar");
+    }
+  };
+
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
@@ -102,14 +113,24 @@ function PortfolioEngineViewerInner() {
               </button>
             </>
           ) : (
-            <button
-              type="button"
-              onClick={handleOpenClick}
-              className="inline-flex items-center gap-2 rounded-xl bg-[#b89047] px-8 py-3.5 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-md transition hover:bg-[#a67c33] active:scale-[0.99]"
-            >
-              <span>Abrir</span>
-              <span>→</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleQuickLogin("allianz", "LuciaSape")}
+                disabled={isActionLoading}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#b89047] to-[#d4af37] px-6 py-3.5 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-md transition hover:brightness-110 active:scale-[0.99] disabled:opacity-50"
+              >
+                <span>👑 Ingresar como Allianz</span>
+                <span>→</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenClick}
+                className="rounded-xl border border-white/20 bg-white/10 px-5 py-3.5 text-xs font-bold uppercase tracking-[0.1em] text-white transition hover:bg-white/20"
+              >
+                Ingresar Grupo
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -140,6 +161,37 @@ function PortfolioEngineViewerInner() {
             <p className="mt-1 text-xs text-[#64748b]">
               Ingrese las credenciales oficiales de su grupo para operar en el terminal de simulación.
             </p>
+
+            {/* Accesos directos rápidos */}
+            <div className="mt-4 flex flex-wrap items-center gap-1.5 rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-2.5">
+              <span className="w-full text-[10px] font-bold uppercase tracking-wider text-[#64748b]">
+                Acceso rápido:
+              </span>
+              <button
+                type="button"
+                onClick={() => handleQuickLogin("allianz", "LuciaSape")}
+                className="rounded-md bg-[#b89047] px-2.5 py-1 text-[10px] font-bold text-white transition hover:bg-[#a67c33]"
+              >
+                👑 Allianz
+              </button>
+              {[
+                { name: "G1", pass: "Bitcoin" },
+                { name: "G2", pass: "Ethereum" },
+                { name: "G3", pass: "GGAL" },
+                { name: "G4", pass: "YPF" },
+                { name: "G5", pass: "AAPL" },
+                { name: "G6", pass: "GOOG" },
+              ].map((g) => (
+                <button
+                  key={g.name}
+                  type="button"
+                  onClick={() => handleQuickLogin(g.name === "G1" ? "Grupo 1" : g.name === "G2" ? "Grupo 2" : g.name === "G3" ? "Grupo 3" : g.name === "G4" ? "Grupo 4" : g.name === "G5" ? "Grupo 5" : "Grupo 6", g.pass)}
+                  className="rounded-md border border-[#cbd5e1] bg-white px-2 py-1 text-[10px] font-mono font-bold text-[#475569] transition hover:bg-[#0062ff] hover:text-white hover:border-[#0062ff]"
+                >
+                  {g.name}
+                </button>
+              ))}
+            </div>
 
             <form onSubmit={handleLoginSubmit} className="mt-6 space-y-4">
               <div>

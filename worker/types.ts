@@ -111,4 +111,6 @@ export interface TournamentRecord {
   trading_end_time?: string;
   max_trades_per_week?: number;
   tournament_type?: "PORTFOLIO" | "FUTURES" | string;
+  start_date?: string;
+  end_date?: string;
 }

@@ -3,11 +3,14 @@
 import React, { useState, useEffect } from "react";
 import { useGroupTrading } from "../context/GroupTradingContext";
 import { realtimePriceStream, RealtimePriceTick } from "../services/realtimePriceStream";
+import { checkTournamentDateRange } from "../utils/tournament-dates";
 
 export const PositionsTable: React.FC = () => {
-  const { positions, closePosition, isActionLoading } = useGroupTrading();
+  const { positions, closePosition, isActionLoading, tournament } = useGroupTrading();
   const [closingId, setClosingId] = useState<string | null>(null);
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
+
+  const dateStatus = checkTournamentDateRange(tournament);
 
   useEffect(() => {
     const unsubscribers: (() => void)[] = [];
@@ -33,6 +36,10 @@ export const PositionsTable: React.FC = () => {
   }, [positions]);
 
   const handleClose = async (posId: string, symbol: string) => {
+    if (!dateStatus.allowed) {
+      alert(dateStatus.reason || "Operación rechazada: el torneo no se encuentra en período operativo habilitado.");
+      return;
+    }
     if (!confirm(`¿Confirmás el cierre a precio de mercado de la posición en ${symbol}?`)) {
       return;
     }
@@ -171,10 +178,19 @@ export const PositionsTable: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleClose(pos.id, pos.symbol)}
-                        disabled={isActionLoading || closingId === pos.id}
-                        className="rounded border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-bold text-red-700 hover:bg-red-600 hover:text-white transition disabled:opacity-50"
+                        disabled={isActionLoading || closingId === pos.id || !dateStatus.allowed}
+                        title={!dateStatus.allowed ? dateStatus.reason : undefined}
+                        className={`rounded border px-2.5 py-1 text-[11px] font-bold transition disabled:opacity-50 ${
+                          !dateStatus.allowed
+                            ? "border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed"
+                            : "border-red-200 bg-red-50 text-red-700 hover:bg-red-600 hover:text-white"
+                        }`}
                       >
-                        {closingId === pos.id ? "Cerrando..." : "Cerrar Mercado"}
+                        {!dateStatus.allowed
+                          ? "Bloqueado"
+                          : closingId === pos.id
+                          ? "Cerrando..."
+                          : "Cerrar Mercado"}
                       </button>
                     </td>
                   </tr>

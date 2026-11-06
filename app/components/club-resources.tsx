@@ -17,7 +17,7 @@ const defaultResources: ResourceItem[] = [
   {
     icon: "↗",
     title: "Monitor de mercado & Futuros",
-    subtitle: "Curvas de tasas implícitas, derivados, riesgo país y paridades BYMA.",
+    subtitle: "Derivados financieros, contratos de futuros, riesgo país y paridades BYMA.",
     href: "/futuros",
   },
   {

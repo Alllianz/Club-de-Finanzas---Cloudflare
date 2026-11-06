@@ -280,7 +280,7 @@ export const leadership: Person[] = [
   {
     name: "Fausto Crivelli",
     role: "Presidente de Futuros",
-    bio: "Lidera la división de Futuros, derivados financieros, estrategias de cobertura sintética, curvas de tasas y operaciones a término.",
+    bio: "Lidera la división de Futuros, derivados financieros y operaciones a término.",
     initials: "FC",
     profileUrl: "https://www.linkedin.com/in/fausto-crivelli/",
     section: "LEADERSHIP",

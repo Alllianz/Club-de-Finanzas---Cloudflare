@@ -14,14 +14,9 @@ export default async function FuturosPage() {
 
   const futurosPillars = [
     {
-      title: "Curva de Tasas Implícitas",
-      badge: "Matba Rofex",
-      desc: "Modelado de la estructura temporal de tasas implícitas de devaluación en contratos de futuros de dólar frente al spot oficial y financiero, analizando spreads y expectativas del mercado.",
-    },
-    {
-      title: "Estrategias de Cobertura (Hedging)",
-      badge: "Gestión de Riesgo",
-      desc: "Diseño cuantitativo de coberturas cambiarias y de tasa para mitigar descalces de balance, minimizando el riesgo de base (basis risk) y optimizando el costo financiero total.",
+      title: "Apalancamiento de hasta 100X",
+      badge: "Margen Institucional",
+      desc: "Gestión avanzada de colateral en modos Aislado (ISOLATED) y Cruzado (CROSS), permitiendo optimizar el capital operativo con ratios de apalancamiento de hasta 100x.",
     },
     {
       title: "Arbitraje Cash & Carry",
@@ -29,9 +24,14 @@ export default async function FuturosPage() {
       desc: "Monitoreo permanente del costo de acarreo (carry) entre activos de renta fija soberana/corporativa y contratos de futuros para capturar primas de arbitraje libre de riesgo direccional.",
     },
     {
-      title: "Paridad Cubierta de Tasas (CIP)",
-      badge: "Macro & Tasas",
-      desc: "Evaluación empírica de desvíos en la paridad de tasas de interés cubiertas, diferenciales entre tasas locales e internacionales y dinámica de márgenes y garantías.",
+      title: "Contratos Perpetuos & Rofex",
+      badge: "Multi-Activo",
+      desc: "Negociación de contratos estandarizados de futuros de dólar financiero, commodities agrícolas y energéticos, índices bursátiles CME y perpetuos cripto.",
+    },
+    {
+      title: "Paper Trading Competitivo",
+      badge: "Torneos Segregados",
+      desc: "Plataforma de simulación bursátil y rankings de desempeño cuantitativo para evaluar estrategias de inversión en derivados sin Look-Ahead Bias.",
     },
   ];
 
@@ -41,8 +41,8 @@ export default async function FuturosPage() {
 
       <PageHero
         eyebrow="Área de Futuros & Derivados"
-        title="Mercado de Derivados, Coberturas y Tasas Implícitas"
-        description="Investigación cuantitativa en futuros financieros, modelado de curvas de tasas implícitas, estrategias de cobertura cambiaria y análisis de arbitraje en los mercados locales e internacionales."
+        title="Mercado de Futuros & Derivados Financieros"
+        description="Investigación cuantitativa y plataforma de paper trading en futuros financieros, derivados con apalancamiento de hasta 100x y torneos competitivos."
         aside={
           <div className="flex flex-wrap items-center gap-4">
             <a
@@ -53,7 +53,7 @@ export default async function FuturosPage() {
               <span>↓</span>
             </a>
             <span className="text-xs font-medium text-[#64748b]">
-              Simulador institucional en vivo · Dólar Matba Rofex, Soja, Maíz, Commodities y Coberturas
+              Simulador institucional en vivo · Dólar Matba Rofex, Commodities, Índices y Cripto Perpetuos
             </span>
           </div>
         }
@@ -65,7 +65,7 @@ export default async function FuturosPage() {
           <SectionLabel
             eyebrow="Marco Técnico"
             title="Pilares del Área de Futuros y Derivados"
-            description="Enfoque analítico para el estudio de contratos de futuros, primas por riesgo cambiario y estructuración de coberturas."
+            description="Enfoque analítico para la valuación de contratos de futuros, dinámicas de bases y gestión de margen apalancado."
           />
 
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -106,7 +106,7 @@ export default async function FuturosPage() {
             <SectionLabel
               eyebrow="Archivo Técnico"
               title="Notas de Coyuntura y Reportes"
-              description="Seguimiento de curvas de devaluación implícita, posiciones abiertas y tasas efectivas."
+              description="Seguimiento de contratos de futuros, volumen operado, posiciones abiertas y análisis de mercado."
             />
             <FeedGrid items={feed} />
           </section>

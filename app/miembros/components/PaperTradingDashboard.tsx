@@ -9,12 +9,15 @@ import { PositionsTable } from "./PositionsTable";
 import { TradesHistoryTable } from "./TradesHistoryTable";
 import { GroupLeaderboard } from "./GroupLeaderboard";
 import { TournamentSelector } from "./TournamentSelector";
+import { checkTournamentDateRange, formatTournamentDate } from "../utils/tournament-dates";
 
 export const PaperTradingDashboard: React.FC = () => {
   const { currentGroup, tournament, logout, refreshTradingData, isActionLoading } = useGroupTrading();
   const [selectedSymbol, setSelectedSymbol] = useState<string>(
     currentGroup?.assignedAsset || "BTC-USD"
   );
+
+  const dateStatus = checkTournamentDateRange(tournament);
 
   return (
     <div className="space-y-8">
@@ -32,6 +35,23 @@ export const PaperTradingDashboard: React.FC = () => {
             {currentGroup?.id === "allianz" && (
               <span className="rounded-full bg-[#b89047]/20 border border-[#b89047]/50 px-2 py-0.5 text-[10px] font-bold text-[#facc15]">
                 👑 Administrador de Torneo
+              </span>
+            )}
+            {tournament && (tournament.startDate || tournament.endDate) && (
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                  dateStatus.status === "SCHEDULED"
+                    ? "bg-amber-500/20 text-amber-300 border-amber-400/40"
+                    : dateStatus.status === "CONCLUDED"
+                    ? "bg-red-500/20 text-red-300 border-red-400/40"
+                    : "bg-emerald-500/20 text-emerald-300 border-emerald-400/40"
+                }`}
+              >
+                {dateStatus.status === "SCHEDULED"
+                  ? `⏳ Inicia: ${formatTournamentDate(tournament.startDate)}`
+                  : dateStatus.status === "CONCLUDED"
+                  ? `🛑 Concluido: ${formatTournamentDate(tournament.endDate)}`
+                  : `🟢 Vigencia: ${tournament.startDate ? formatTournamentDate(tournament.startDate) : "Apertura"} - ${tournament.endDate ? formatTournamentDate(tournament.endDate) : "Sin fin"}`}
               </span>
             )}
             {tournament && !tournament.allowShort && (

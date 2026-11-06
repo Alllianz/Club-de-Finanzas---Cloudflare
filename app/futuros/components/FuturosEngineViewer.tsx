@@ -3,28 +3,18 @@
 import React, { useState } from "react";
 import { GroupTradingProvider, useGroupTrading } from "@/app/miembros/context/GroupTradingContext";
 import { FuturosPaperTradingDashboard } from "./FuturosPaperTradingDashboard";
-import { FuturosImplicitRateCard } from "./FuturosImplicitRateCard";
 import { TournamentManagementPanel } from "@/app/miembros/components/TournamentManagementPanel";
 
 function FuturosEngineViewerInner() {
   const { currentGroup, login, logout, isActionLoading } = useGroupTrading();
   const [isOpen, setIsOpen] = useState(true);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<"paper" | "rates" | "tournament">("paper");
+  const [activeTab, setActiveTab] = useState<"paper" | "tournament">("paper");
 
   // Formulario login modal
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
-
-  // Calculadora de Cobertura de Mínima Varianza
-  const [spotVol, setSpotVol] = useState<number>(28.5);
-  const [futureVol, setFutureVol] = useState<number>(31.0);
-  const [correlation, setCorrelation] = useState<number>(0.92);
-  const [portfolioValue, setPortfolioValue] = useState<number>(50000);
-
-  const optimalHedgeRatio = futureVol > 0 ? correlation * (spotVol / futureVol) : 0;
-  const hedgedValue = portfolioValue * optimalHedgeRatio;
 
   const handleOpenClick = () => {
     if (currentGroup) {
@@ -88,7 +78,7 @@ function FuturosEngineViewerInner() {
             Laboratorio de Futuros & Paper Trading Aegis
           </h2>
           <p className="mt-2 text-xs leading-relaxed text-[#94a3b8] sm:text-sm">
-            Terminal de simulación de trading en vivo de contratos de futuros (Dólar Matba Rofex, Commodities, Índices y Cripto Perpetuos) para los Grupos 1 al 6 y Allianz, gestión de márgenes, monitoreo de curvas implícitas y torneos independientes.
+            Terminal de simulación de trading en vivo de contratos de futuros (Dólar Matba Rofex, Commodities, Índices y Cripto Perpetuos) para los Grupos 1 al 6 y Allianz, gestión de márgenes con apalancamiento de hasta 100x y torneos independientes.
           </p>
         </div>
 
@@ -266,17 +256,6 @@ function FuturosEngineViewerInner() {
               >
                 <span>⚡ Paper Trading Aegis (Terminal de Futuros en Vivo)</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("rates")}
-                className={`flex items-center gap-2 rounded-lg px-6 py-2.5 text-xs font-bold uppercase tracking-[0.12em] transition-all ${
-                  activeTab === "rates"
-                    ? "bg-[#0b1727] text-white shadow-xs"
-                    : "text-[#64748b] hover:text-[#0b1727]"
-                }`}
-              >
-                <span>📈 Curva de Tasas & Coberturas (CIP / h*)</span>
-              </button>
               {currentGroup.id === "allianz" && (
                 <button
                   type="button"
@@ -304,123 +283,7 @@ function FuturosEngineViewerInner() {
             </div>
           )}
 
-          {/* VISTA 2: HERRAMIENTAS CUANTITATIVAS (TASAS IMPLÍCITAS & COBERTURA DE MÍNIMA VARIANZA) */}
-          {activeTab === "rates" && (
-            <div className="space-y-6 pt-2">
-              <FuturosImplicitRateCard />
-
-              <div className="rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-sm">
-                <div className="border-b border-[#f1f5f9] pb-4">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#0062ff]">
-                    Gestión de Riesgo Cuantitativo
-                  </span>
-                  <h3 className="font-serif text-xl font-bold text-[#0b1727]">
-                    Calculadora de Cobertura de Mínima Varianza (Minimum Variance Hedge Ratio)
-                  </h3>
-                  <p className="mt-1 text-xs text-[#64748b]">
-                    Determinación del ratio óptimo h* = ρ · (σ_S / σ_F) para inmunizar una cartera contra fluctuaciones de mercado.
-                  </p>
-                </div>
-
-                <div className="mt-6 grid gap-6 lg:grid-cols-12">
-                  <div className="space-y-4 lg:col-span-5">
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-[#475569]">
-                        Valor del Portafolio a Cubrir ($ USD)
-                      </label>
-                      <input
-                        type="number"
-                        value={portfolioValue}
-                        onChange={(e) => setPortfolioValue(parseFloat(e.target.value) || 0)}
-                        className="mt-1.5 w-full rounded-xl border border-[#cbd5e1] bg-[#f8fafc] px-4 py-2 font-mono text-sm font-bold text-[#0b1727] outline-none transition focus:border-[#0062ff] focus:bg-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-[#475569]">
-                        Volatilidad Anualizada del Spot σ_S (%)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={spotVol}
-                        onChange={(e) => setSpotVol(parseFloat(e.target.value) || 0)}
-                        className="mt-1.5 w-full rounded-xl border border-[#cbd5e1] bg-[#f8fafc] px-4 py-2 font-mono text-sm font-bold text-[#0b1727] outline-none transition focus:border-[#0062ff] focus:bg-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-[#475569]">
-                        Volatilidad Anualizada del Futuro σ_F (%)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={futureVol}
-                        onChange={(e) => setFutureVol(parseFloat(e.target.value) || 0)}
-                        className="mt-1.5 w-full rounded-xl border border-[#cbd5e1] bg-[#f8fafc] px-4 py-2 font-mono text-sm font-bold text-[#0b1727] outline-none transition focus:border-[#0062ff] focus:bg-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-[#475569]">
-                        Correlación Cruzada Spot-Futuro ρ (-1 a 1)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="-1"
-                        max="1"
-                        value={correlation}
-                        onChange={(e) => setCorrelation(parseFloat(e.target.value) || 0)}
-                        className="mt-1.5 w-full rounded-xl border border-[#cbd5e1] bg-[#f8fafc] px-4 py-2 font-mono text-sm font-bold text-[#0b1727] outline-none transition focus:border-[#0062ff] focus:bg-white"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2 lg:col-span-7">
-                    <div className="flex flex-col justify-between rounded-xl border border-[#e2e8f0] bg-[#f0f6ff] p-5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#0062ff]">
-                        Ratio Óptimo de Cobertura h*
-                      </span>
-                      <div className="my-2 font-mono text-3xl font-bold text-[#0e2246]">
-                        {optimalHedgeRatio.toFixed(4)}
-                      </div>
-                      <p className="text-[10px] text-[#64748b]">
-                        Por cada $1.00 de exposición spot se requieren ${optimalHedgeRatio.toFixed(2)} nocionales en futuros cortos.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col justify-between rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#1e3a8a]">
-                        Posición Corta Nocional Requerida
-                      </span>
-                      <div className="my-2 font-mono text-2xl font-bold text-[#0e2246]">
-                        ${hedgedValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                      </div>
-                      <p className="text-[10px] text-[#64748b]">
-                        Monto total a vender en contratos cortos de futuros para inmunizar la cartera.
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-[#e2e8f0] bg-white p-5 sm:col-span-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#475569]">
-                        Efectividad de la Cobertura (R²)
-                      </span>
-                      <div className="my-1 font-mono text-xl font-bold text-emerald-600">
-                        {((correlation * correlation) * 100).toFixed(1)}% de varianza explicada y reducida
-                      </div>
-                      <p className="text-[11px] text-[#64748b]">
-                        El coeficiente de determinación indica la fracción de volatilidad eliminada mediante la posición corta en futuros.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* VISTA 3: ADMINISTRACIÓN DE TORNEO DE FUTUROS (EXCLUSIVO ALLIANZ) */}
+          {/* VISTA 2: ADMINISTRACIÓN DE TORNEO DE FUTUROS (EXCLUSIVO ALLIANZ) */}
           {activeTab === "tournament" && currentGroup.id === "allianz" && (
             <div className="pt-2">
               <TournamentManagementPanel />

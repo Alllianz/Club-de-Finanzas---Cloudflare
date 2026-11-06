@@ -402,6 +402,8 @@ export default {
           tradingEndTime: t.trading_end_time || "",
           maxTradesPerWeek: t.max_trades_per_week || 0,
           tournamentType: t.tournament_type || (t.id.includes("futur") ? "FUTURES" : "PORTFOLIO"),
+          startDate: t.start_date || "",
+          endDate: t.end_date || "",
           status: t.status,
           createdAt: t.created_at,
           isJoined: partSet.has(t.id) || t.id === "torneo-club-2026" || t.id === "torneo-futuros-2026",
@@ -550,6 +552,8 @@ export default {
                   tradingEndTime: tournament.trading_end_time || "",
                   maxTradesPerWeek: tournament.max_trades_per_week || 0,
                   tournamentType: tournament.tournament_type || (tournament.id.includes("futur") ? "FUTURES" : "PORTFOLIO"),
+                  startDate: tournament.start_date || "",
+                  endDate: tournament.end_date || "",
                   status: tournament.status,
                   createdAt: tournament.created_at,
                 }
@@ -578,6 +582,9 @@ export default {
         }
 
         const body = (await request.json().catch(() => ({}))) as {
+          id?: string;
+          tournamentId?: string;
+          gameId?: string;
           creatorId?: string;
           title?: string;
           description?: string;
@@ -593,6 +600,10 @@ export default {
           createNew?: boolean;
           tournamentType?: string;
           marketType?: string;
+          startDate?: string;
+          endDate?: string;
+          start_date?: string;
+          end_date?: string;
         };
 
         const creatorId = (body.creatorId || "").trim().toLowerCase();
@@ -607,6 +618,7 @@ export default {
         }
 
         const result = await saveTournament(env.DB, creatorId, {
+          id: body.id || body.tournamentId || body.gameId,
           title: body.title || "Torneo Oficial - Club de Finanzas UBA",
           description: body.description || "",
           allow_short: body.allowShort ?? true,
@@ -621,6 +633,8 @@ export default {
           createNew: body.createNew,
           tournament_type: body.tournamentType || body.marketType,
           marketType: body.marketType,
+          start_date: body.startDate || body.start_date || "",
+          end_date: body.endDate || body.end_date || "",
         });
 
         return new Response(

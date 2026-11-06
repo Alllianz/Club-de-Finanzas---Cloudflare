@@ -313,7 +313,7 @@ function MiembrosPageContent() {
                             Terminal de Futuros & Derivados
                           </h3>
                           <p className="mt-2 text-xs text-[#64748b]">
-                            Simulación en tiempo real de Dólar Rofex, Commodities, Coberturas y Torneos de Derivados.
+                            Simulación en tiempo real de Dólar Rofex, Commodities, Índices y Torneos de Derivados.
                           </p>
                         </div>
                         <div className="mt-6">

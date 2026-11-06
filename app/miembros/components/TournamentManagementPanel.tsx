@@ -2,6 +2,12 @@
 
 import React, { useState, useEffect } from "react";
 import { useGroupTrading } from "../context/GroupTradingContext";
+import {
+  parseTournamentDateBoundary,
+  formatTournamentDate,
+  toDateTimeLocalString,
+  checkTournamentDateRange,
+} from "../utils/tournament-dates";
 
 export const TournamentManagementPanel: React.FC = () => {
   const {
@@ -22,7 +28,7 @@ export const TournamentManagementPanel: React.FC = () => {
   );
   const [description, setDescription] = useState<string>(
     marketType === "FUTURES"
-      ? "Competencia de trading cuantitativo en derivados, futuros de dólar Rofex, commodities y coberturas."
+      ? "Competencia de trading cuantitativo en derivados, futuros de dólar Rofex, commodities e índices."
       : "Competencia de simulación de portafolios y gestión de riesgo para los grupos de finanzas."
   );
   const [allowShort, setAllowShort] = useState<boolean>(true);
@@ -32,6 +38,8 @@ export const TournamentManagementPanel: React.FC = () => {
   const [tradingStartTime, setTradingStartTime] = useState<string>("");
   const [tradingEndTime, setTradingEndTime] = useState<string>("");
   const [maxTradesPerWeek, setMaxTradesPerWeek] = useState<number>(0);
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
   const [resetBalances, setResetBalances] = useState<boolean>(false);
   const [createNew, setCreateNew] = useState<boolean>(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -57,6 +65,8 @@ export const TournamentManagementPanel: React.FC = () => {
       setTradingStartTime(tournament.tradingStartTime || "");
       setTradingEndTime(tournament.tradingEndTime || "");
       setMaxTradesPerWeek(tournament.maxTradesPerWeek || 0);
+      setStartDate(toDateTimeLocalString(tournament.startDate));
+      setEndDate(toDateTimeLocalString(tournament.endDate));
     }
   }, [tournament, marketType]);
 
@@ -93,6 +103,19 @@ export const TournamentManagementPanel: React.FC = () => {
 
     const parsedCapital = Math.max(1, parseFloat(initialCapitalInput) || 10000);
 
+    // Validación de coherencia temporal (Zero Look-Ahead Bias)
+    if (startDate && endDate) {
+      const sMs = parseTournamentDateBoundary(startDate, false);
+      const eMs = parseTournamentDateBoundary(endDate, true);
+      if (sMs && eMs && eMs < sMs) {
+        setFeedback({
+          type: "error",
+          text: "Inconsistencia de fechas: La fecha de finalización no puede ser cronológicamente anterior a la de inicio.",
+        });
+        return;
+      }
+    }
+
     const res = await saveTournamentConfig({
       title: title.trim(),
       description: description.trim(),
@@ -104,6 +127,8 @@ export const TournamentManagementPanel: React.FC = () => {
       tradingStartTime,
       tradingEndTime,
       maxTradesPerWeek,
+      startDate,
+      endDate,
       resetBalances,
       createNew,
     });
@@ -225,6 +250,23 @@ export const TournamentManagementPanel: React.FC = () => {
                     {t.description || "Sin descripción adicional."}
                   </p>
 
+                  {(t.startDate || t.endDate) && (
+                    <div className="mt-2 rounded bg-white px-2 py-1 text-[10px] text-[#475569] border border-[#e2e8f0]">
+                      {t.startDate && (
+                        <div>
+                          <span className="font-semibold text-[#0b1727]">Inicio:</span>{" "}
+                          {formatTournamentDate(t.startDate)}
+                        </div>
+                      )}
+                      {t.endDate && (
+                        <div>
+                          <span className="font-semibold text-[#0b1727]">Fin:</span>{" "}
+                          {formatTournamentDate(t.endDate)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="mt-2.5 flex items-center justify-between text-[10px] text-[#475569] border-t border-[#e2e8f0] pt-2 font-mono">
                     <span>Cap: ${t.initialCapital}</span>
                     <span>Lev: {t.maxLeverage}x</span>
@@ -275,6 +317,186 @@ export const TournamentManagementPanel: React.FC = () => {
 
       {/* FORMULARIO DE GOBERNANZA */}
       <form onSubmit={handleSaveTournament} className="space-y-6">
+        {/* VIGENCIA TEMPORAL Y CALENDARIO DEL TORNEO (ZERO LOOK-AHEAD BIAS) - UBICACIÓN PRIMARIA */}
+        <div className="rounded-2xl border-2 border-[#b89047] bg-gradient-to-br from-amber-50/50 via-white to-white p-6 shadow-md space-y-4">
+          <div className="flex flex-wrap items-center justify-between border-b border-[#f1f5f9] pb-3 gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="h-[2px] w-4 bg-[#b89047]" />
+                <h3 className="font-serif text-lg font-bold text-[#0b1727]">
+                  📅 Fechas Oficiales de Inicio y Finalización del Torneo
+                </h3>
+                <span className="rounded-full bg-[#b89047]/20 px-2 py-0.5 text-[10px] font-bold text-[#8c6729] border border-[#b89047]/40">
+                  Control Temporal de Apertura y Cierre
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-[#64748b]">
+                Determiná la ventana exacta del torneo. Fuera de estas fechas, el motor de ejecución y las terminales de los participantes rechazarán de forma absoluta cualquier orden.
+              </p>
+            </div>
+
+            {/* Chip de Estado Dinámico de Fechas */}
+            {(() => {
+              const dateStatus = checkTournamentDateRange({ startDate, endDate });
+              if (dateStatus.status === "SCHEDULED") {
+                return (
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800 border border-amber-300 flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                    ⏳ Programado (Apertura Próxima)
+                  </span>
+                );
+              }
+              if (dateStatus.status === "CONCLUDED") {
+                return (
+                  <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-800 border border-red-300 flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-red-500" />
+                    🛑 Concluido (Trading Inhabilitado)
+                  </span>
+                );
+              }
+              if (startDate || endDate) {
+                return (
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 border border-emerald-300 flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    🟢 En Curso (Período Operativo Hábil)
+                  </span>
+                );
+              }
+              return (
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700 border border-slate-300">
+                  🌐 Continuo (Sin Restricción de Fechas)
+                </span>
+              );
+            })()}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Fecha de Inicio */}
+            <div className="rounded-xl border border-amber-200/70 bg-amber-50/30 p-4">
+              <label className="block text-xs font-bold uppercase tracking-wider text-[#0b1727] flex items-center gap-1.5">
+                <span>🟢</span> Fecha y Hora de Inicio
+              </label>
+              <input
+                type="datetime-local"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#cbd5e1] bg-white px-3.5 py-2.5 text-xs font-mono font-bold text-[#0b1727] outline-none transition focus:border-[#0b1727] shadow-2xs"
+              />
+              <p className="mt-1 text-[11px] text-[#64748b]">
+                {startDate
+                  ? `Las operaciones comenzarán el ${formatTournamentDate(startDate) || startDate}.`
+                  : "Si se deja vacío, el torneo estará activo de inmediato."}
+              </p>
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date();
+                    const year = now.getFullYear();
+                    const month = String(now.getMonth() + 1).padStart(2, "0");
+                    const day = String(now.getDate()).padStart(2, "0");
+                    setStartDate(`${year}-${month}-${day}T00:00`);
+                  }}
+                  className="rounded border border-[#cbd5e1] bg-white px-2 py-0.5 text-[9px] font-semibold text-[#0062ff] hover:bg-[#f1f5f9]"
+                >
+                  Hoy (00:00 hs)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date();
+                    const year = now.getFullYear();
+                    const month = String(now.getMonth() + 1).padStart(2, "0");
+                    const day = String(now.getDate()).padStart(2, "0");
+                    const hours = String(now.getHours()).padStart(2, "0");
+                    const minutes = String(now.getMinutes()).padStart(2, "0");
+                    setStartDate(`${year}-${month}-${day}T${hours}:${minutes}`);
+                  }}
+                  className="rounded border border-[#cbd5e1] bg-white px-2 py-0.5 text-[9px] font-semibold text-[#0062ff] hover:bg-[#f1f5f9]"
+                >
+                  Ahora Mismo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStartDate("")}
+                  className="rounded border border-[#cbd5e1] bg-white px-2 py-0.5 text-[9px] font-semibold text-[#64748b] hover:bg-[#f1f5f9]"
+                >
+                  Sin Inicio Fijo
+                </button>
+              </div>
+            </div>
+
+            {/* Fecha de Finalización */}
+            <div className="rounded-xl border border-red-200/70 bg-red-50/20 p-4">
+              <label className="block text-xs font-bold uppercase tracking-wider text-[#0b1727] flex items-center gap-1.5">
+                <span>🛑</span> Fecha y Hora de Finalización
+              </label>
+              <input
+                type="datetime-local"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="mt-2 w-full rounded-xl border border-[#cbd5e1] bg-white px-3.5 py-2.5 text-xs font-mono font-bold text-[#0b1727] outline-none transition focus:border-[#0b1727] shadow-2xs"
+              />
+              <p className="mt-1 text-[11px] text-[#64748b]">
+                {endDate
+                  ? `El torneo cerrará operaciones el ${formatTournamentDate(endDate) || endDate}.`
+                  : "Si se deja vacío, el torneo continuará sin fecha límite de cierre."}
+              </p>
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const base = startDate ? new Date(startDate) : new Date();
+                    const target = new Date(base.getTime() + 7 * 24 * 60 * 60 * 1000);
+                    const year = target.getFullYear();
+                    const month = String(target.getMonth() + 1).padStart(2, "0");
+                    const day = String(target.getDate()).padStart(2, "0");
+                    setEndDate(`${year}-${month}-${day}T23:59`);
+                  }}
+                  className="rounded border border-[#cbd5e1] bg-white px-2 py-0.5 text-[9px] font-semibold text-[#0062ff] hover:bg-[#f1f5f9]"
+                >
+                  +1 Semana (23:59)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const base = startDate ? new Date(startDate) : new Date();
+                    const target = new Date(base.getTime() + 14 * 24 * 60 * 60 * 1000);
+                    const year = target.getFullYear();
+                    const month = String(target.getMonth() + 1).padStart(2, "0");
+                    const day = String(target.getDate()).padStart(2, "0");
+                    setEndDate(`${year}-${month}-${day}T23:59`);
+                  }}
+                  className="rounded border border-[#cbd5e1] bg-white px-2 py-0.5 text-[9px] font-semibold text-[#0062ff] hover:bg-[#f1f5f9]"
+                >
+                  +2 Semanas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const base = startDate ? new Date(startDate) : new Date();
+                    const target = new Date(base.getTime() + 30 * 24 * 60 * 60 * 1000);
+                    const year = target.getFullYear();
+                    const month = String(target.getMonth() + 1).padStart(2, "0");
+                    const day = String(target.getDate()).padStart(2, "0");
+                    setEndDate(`${year}-${month}-${day}T23:59`);
+                  }}
+                  className="rounded border border-[#cbd5e1] bg-white px-2 py-0.5 text-[9px] font-semibold text-[#0062ff] hover:bg-[#f1f5f9]"
+                >
+                  +1 Mes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEndDate("")}
+                  className="rounded border border-[#cbd5e1] bg-white px-2 py-0.5 text-[9px] font-semibold text-[#64748b] hover:bg-[#f1f5f9]"
+                >
+                  Sin Cierre Fijo
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* INFORMACIÓN BÁSICA DEL TORNEO */}
           <div className="rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-sm space-y-4">
@@ -364,7 +586,7 @@ export const TournamentManagementPanel: React.FC = () => {
                   {marketType === "FUTURES" && (
                     <>
                       <option value={20}>20x (Futuros Rofex / CME)</option>
-                      <option value={50}>50x (Alta Cobertura Dinámica)</option>
+                      <option value={50}>50x (Alto Apalancamiento)</option>
                       <option value={100}>100x (Máximo Institucional Derivados)</option>
                     </>
                   )}

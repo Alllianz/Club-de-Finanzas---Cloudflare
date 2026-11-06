@@ -4,6 +4,8 @@
 import { D1Database, PortfolioRecord, PositionRecord, TradeRecord, LeaderboardEntry, TournamentRecord } from "./types";
 import { fetchLiveMarketQuote } from "./market-feed";
 import { OFFICIAL_GROUPS } from "./group-auth";
+import { checkTournamentDateRange, parseTournamentDateBoundary, formatTournamentDate } from "./tournament-dates";
+export { checkTournamentDateRange, parseTournamentDateBoundary, formatTournamentDate };
 
 export const DEFAULT_GAME_ID = "torneo-club-2026";
 export const DEFAULT_FUTURES_GAME_ID = "torneo-futuros-2026";
@@ -307,6 +309,13 @@ export async function executeOrder(
   const initialCap = tournament?.initial_capital || INITIAL_CAPITAL;
   const maxAllowedLeverage = tournament?.max_leverage || MAX_LEVERAGE;
 
+  // 1. Restricción estricta por fechas de vigencia del torneo (Zero Look-Ahead Bias)
+  // Fuera del rango [start_date, end_date] se bloquea taxativamente cualquier operación
+  const dateCheck = checkTournamentDateRange(tournament);
+  if (!dateCheck.allowed) {
+    throw new Error(dateCheck.reason || "Operación rechazada: el torneo no se encuentra en período hábil para operar.");
+  }
+
   // Si no es el administrador Allianz, aplicar estrictamente la ventana de rebalanceo y cupo semanal
   if (groupId.toLowerCase() !== "allianz") {
     const windowCheck = checkRebalanceWindow(tournament);
@@ -454,6 +463,12 @@ export async function executeOrder(
 export async function closePosition(db: D1Database, groupId: string, positionId: string, targetGameId?: string) {
   const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
   const gameId = tournament?.id || targetGameId || DEFAULT_GAME_ID;
+
+  // Restricción estricta por fechas de vigencia del torneo (Zero Look-Ahead Bias)
+  const dateCheck = checkTournamentDateRange(tournament);
+  if (!dateCheck.allowed) {
+    throw new Error(dateCheck.reason || "Operación rechazada: el torneo no se encuentra en período hábil para operar.");
+  }
 
   // Si no es el administrador Allianz, validar ventana de rebalanceo
   if (groupId.toLowerCase() !== "allianz") {
@@ -648,6 +663,18 @@ export async function ensureTournamentTypeMigration(db: D1Database) {
   }
 
   try {
+    await db.prepare("ALTER TABLE games ADD COLUMN start_date TEXT DEFAULT ''").run();
+  } catch {
+    // Columna ya existe
+  }
+
+  try {
+    await db.prepare("ALTER TABLE games ADD COLUMN end_date TEXT DEFAULT ''").run();
+  } catch {
+    // Columna ya existe
+  }
+
+  try {
     const fut = await db.prepare("SELECT id FROM games WHERE id = ?").bind(DEFAULT_FUTURES_GAME_ID).first();
     if (!fut) {
       const nowMs = Date.now();
@@ -663,7 +690,7 @@ export async function ensureTournamentTypeMigration(db: D1Database) {
         .bind(
           DEFAULT_FUTURES_GAME_ID,
           "Competencia Oficial de Futuros & Derivados - Club de Finanzas UBA",
-          "Torneo de Paper Trading en derivados enfocado en futuros Matba Rofex, commodities CME, índices y coberturas.",
+          "Torneo de Paper Trading en derivados enfocado en futuros Matba Rofex, commodities CME, índices y cripto perpetuos.",
           nowMs,
           "DLR-ABR26,DLR-MAY26,DLR-JUN26,CL=F,GC=F,ZS=F,ES=F,NQ=F,BTC-USD,ETH-USD"
         )
@@ -818,6 +845,9 @@ export async function saveTournament(
   db: D1Database,
   creatorId: string,
   params: {
+    id?: string;
+    tournamentId?: string;
+    gameId?: string;
     title: string;
     description?: string;
     allow_short: boolean;
@@ -832,6 +862,10 @@ export async function saveTournament(
     createNew?: boolean;
     tournament_type?: string;
     marketType?: string;
+    start_date?: string;
+    end_date?: string;
+    startDate?: string;
+    endDate?: string;
   }
 ) {
   if (creatorId.toLowerCase() !== "allianz") {
@@ -861,6 +895,8 @@ export async function saveTournament(
   const tradingStartTime = (params.trading_start_time || "").trim();
   const tradingEndTime = (params.trading_end_time || "").trim();
   const maxTradesPerWeek = Math.max(0, Number(params.max_trades_per_week) || 0);
+  const startDate = (params.start_date || params.startDate || "").trim();
+  const endDate = (params.end_date || params.endDate || "").trim();
 
   let tournamentId = tournamentType === "FUTURES" ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
 
@@ -872,8 +908,9 @@ export async function saveTournament(
           id, title, description, creator_id, creator_name,
           initial_capital, max_leverage, allow_short,
           fee_crypto_bps, fee_stock_bps, status, created_at, ended_at, allowed_symbols,
-          rebalance_day, trading_start_time, trading_end_time, max_trades_per_week, tournament_type
-        ) VALUES (?, ?, ?, 'allianz', 'Allianz', ?, ?, ?, 5, 2, 'ACTIVE', ?, NULL, ?, ?, ?, ?, ?, ?)`
+          rebalance_day, trading_start_time, trading_end_time, max_trades_per_week, tournament_type,
+          start_date, end_date
+        ) VALUES (?, ?, ?, 'allianz', 'Allianz', ?, ?, ?, 5, 2, 'ACTIVE', ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         tournamentId,
@@ -888,19 +925,27 @@ export async function saveTournament(
         tradingStartTime,
         tradingEndTime,
         maxTradesPerWeek,
-        tournamentType
+        tournamentType,
+        startDate,
+        endDate
       )
       .run();
   } else {
-    // Si existe uno activo de esta categoría, actualizar sus reglas directamente
-    const active = await getActiveTournament(db, tournamentType);
-    if (active) {
-      tournamentId = active.id;
+    // Si se especifica un ID de torneo o existe uno activo, actualizar directamente
+    const targetId = params.id || params.tournamentId || params.gameId;
+    let targetTournament = targetId ? await getTournamentById(db, targetId) : null;
+    if (!targetTournament) {
+      targetTournament = await getActiveTournament(db, tournamentType);
+    }
+
+    if (targetTournament) {
+      tournamentId = targetTournament.id;
       await db
         .prepare(
           `UPDATE games
            SET title = ?, description = ?, allow_short = ?, allowed_symbols = ?, max_leverage = ?, initial_capital = ?,
-               rebalance_day = ?, trading_start_time = ?, trading_end_time = ?, max_trades_per_week = ?, tournament_type = ?
+               rebalance_day = ?, trading_start_time = ?, trading_end_time = ?, max_trades_per_week = ?, tournament_type = ?,
+               start_date = ?, end_date = ?
            WHERE id = ?`
         )
         .bind(
@@ -915,6 +960,8 @@ export async function saveTournament(
           tradingEndTime,
           maxTradesPerWeek,
           tournamentType,
+          startDate,
+          endDate,
           tournamentId
         )
         .run();
@@ -925,8 +972,9 @@ export async function saveTournament(
             id, title, description, creator_id, creator_name,
             initial_capital, max_leverage, allow_short,
             fee_crypto_bps, fee_stock_bps, status, created_at, ended_at, allowed_symbols,
-            rebalance_day, trading_start_time, trading_end_time, max_trades_per_week, tournament_type
-          ) VALUES (?, ?, ?, 'allianz', 'Allianz', ?, ?, ?, 5, 2, 'ACTIVE', ?, NULL, ?, ?, ?, ?, ?, ?)`
+            rebalance_day, trading_start_time, trading_end_time, max_trades_per_week, tournament_type,
+            start_date, end_date
+          ) VALUES (?, ?, ?, 'allianz', 'Allianz', ?, ?, ?, 5, 2, 'ACTIVE', ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           tournamentId,
@@ -941,7 +989,9 @@ export async function saveTournament(
           tradingStartTime,
           tradingEndTime,
           maxTradesPerWeek,
-          tournamentType
+          tournamentType,
+          startDate,
+          endDate
         )
         .run();
     }

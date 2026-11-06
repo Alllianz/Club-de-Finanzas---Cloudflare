@@ -97,12 +97,16 @@ export interface TournamentSettings {
   tradingEndTime?: string;
   maxTradesPerWeek?: number;
   tournamentType?: "PORTFOLIO" | "FUTURES" | string;
+  startDate?: string;
+  endDate?: string;
   isJoined?: boolean;
   status: string;
   createdAt: number;
 }
 
 export interface SaveTournamentParams {
+  id?: string;
+  tournamentId?: string;
   creatorId: string;
   title: string;
   description?: string;
@@ -117,4 +121,6 @@ export interface SaveTournamentParams {
   resetBalances?: boolean;
   createNew?: boolean;
   tournamentType?: "PORTFOLIO" | "FUTURES" | string;
+  startDate?: string;
+  endDate?: string;
 }

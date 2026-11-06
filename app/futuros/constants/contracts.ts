@@ -47,7 +47,7 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     maturityDate: "29/05/2026",
     daysToMaturity: 56,
     settlementType: "Cash",
-    description: "Posición intermedia de la curva cambiaria Matba Rofex para coberturas corporativas.",
+    description: "Posición intermedia de futuros cambiarios Matba Rofex para trading y fijación de tipo de cambio.",
   },
   {
     symbol: "DLR-JUN26",
@@ -62,7 +62,7 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     maturityDate: "30/06/2026",
     daysToMaturity: 86,
     settlementType: "Cash",
-    description: "Posición trimestral de futuros cambiarios para análisis de paridad cubierta de tasas.",
+    description: "Posición trimestral de futuros cambiarios para análisis de spreads y expectativas cambiarias.",
   },
 
   // 2. Materias Primas / Commodities (CME / NYMEX)
@@ -77,7 +77,7 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     maintenanceMarginPct: 0.005,
     maxLeverage: 100,
     settlementType: "Cash",
-    description: "Futuro del petróleo crudo WTI en NYMEX. Cobertura ante shocks energéticos y términos de intercambio.",
+    description: "Futuro del petróleo crudo WTI en NYMEX. Derivado energético de referencia internacional.",
   },
   {
     symbol: "GC=F",
@@ -90,7 +90,7 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     maintenanceMarginPct: 0.005,
     maxLeverage: 100,
     settlementType: "Cash",
-    description: "Activo de cobertura por excelencia contra volatilidad inflacionaria y riesgo geopolítico global.",
+    description: "Activo de resguardo de valor por excelencia contra volatilidad inflacionaria y riesgo macroeconómico global.",
   },
   {
     symbol: "ZS=F",
