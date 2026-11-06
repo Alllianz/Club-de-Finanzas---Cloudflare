@@ -162,3 +162,16 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     description: "Contrato perpetuo sobre el token de contratos inteligentes de la red Ethereum.",
   },
 ];
+
+export const FUTURES_TICKERS = [
+  { symbol: "DLR-ABR26", label: "DLR Abr 26 (Rofex)", type: "Futures" },
+  { symbol: "DLR-MAY26", label: "DLR May 26 (Rofex)", type: "Futures" },
+  { symbol: "DLR-JUN26", label: "DLR Jun 26 (Rofex)", type: "Futures" },
+  { symbol: "CL=F", label: "Crude Oil WTI", type: "Futures" },
+  { symbol: "GC=F", label: "Gold (Oro COMEX)", type: "Futures" },
+  { symbol: "ZS=F", label: "Soja (CBOT)", type: "Futures" },
+  { symbol: "ES=F", label: "S&P 500 E-mini", type: "Futures" },
+  { symbol: "NQ=F", label: "Nasdaq 100 E-mini", type: "Futures" },
+  { symbol: "BTC-USD", label: "BTC/USD Perp", type: "Crypto" },
+  { symbol: "ETH-USD", label: "ETH/USD Perp", type: "Crypto" },
+];

@@ -6,9 +6,14 @@ import { fetchQuote } from "../services/paperApi";
 import { LiveMarketQuote } from "../types/paper-trading";
 import { realtimePriceStream, RealtimePriceTick } from "../services/realtimePriceStream";
 
-export const MarketTickerBar: React.FC<{ onSelectSymbol?: (symbol: string) => void }> = ({
+export const MarketTickerBar: React.FC<{
+  onSelectSymbol?: (symbol: string) => void;
+  customTickers?: { symbol: string; label?: string; type?: string }[];
+}> = ({
   onSelectSymbol,
+  customTickers,
 }) => {
+  const activeTickers = customTickers || POPULAR_TICKERS;
   const [quotes, setQuotes] = useState<Record<string, LiveMarketQuote>>({});
   const [flashStates, setFlashStates] = useState<Record<string, "up" | "down">>({});
   const [loading, setLoading] = useState<boolean>(true);
@@ -32,7 +37,7 @@ export const MarketTickerBar: React.FC<{ onSelectSymbol?: (symbol: string) => vo
     // 1. Cargar estado inicial de todos los tickers
     const loadTickerQuotes = async () => {
       const results: Record<string, LiveMarketQuote> = {};
-      const symbols = POPULAR_TICKERS.map((t) => t.symbol);
+      const symbols = activeTickers.map((t) => t.symbol);
 
       await Promise.allSettled(
         symbols.map(async (s) => {
@@ -55,7 +60,7 @@ export const MarketTickerBar: React.FC<{ onSelectSymbol?: (symbol: string) => vo
 
     // 2. Suscribir tickers Cripto al WebSocket de ultra-baja latencia (1 segundo)
     const unsubscribers: (() => void)[] = [];
-    const cryptoTickers = POPULAR_TICKERS.filter(
+    const cryptoTickers = activeTickers.filter(
       (t) =>
         t.symbol.endsWith("-USD") ||
         t.symbol.endsWith("USDT") ||
@@ -114,7 +119,7 @@ export const MarketTickerBar: React.FC<{ onSelectSymbol?: (symbol: string) => vo
           </span>
         </div>
 
-        {POPULAR_TICKERS.map((t) => {
+        {activeTickers.map((t) => {
           const q = quotes[t.symbol];
           const isUp = q ? q.change_24h_pct >= 0 : true;
           const flash = flashStates[t.symbol];

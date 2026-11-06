@@ -5,12 +5,22 @@ import { POPULAR_TICKERS } from "../constants/groups";
 import { useGroupTrading } from "../context/GroupTradingContext";
 import { useLiveQuote } from "../hooks/useLiveQuote";
 
-export const TradingOrderCard: React.FC<{ initialSymbol?: string }> = ({
+export const TradingOrderCard: React.FC<{
+  initialSymbol?: string;
+  customTickers?: { symbol: string; label?: string; type?: string }[];
+}> = ({
   initialSymbol = "BTC-USD",
+  customTickers,
 }) => {
   const { placeOrder, isActionLoading, portfolio, tournament } = useGroupTrading();
 
   const [symbol, setSymbol] = useState<string>(initialSymbol);
+
+  useEffect(() => {
+    if (initialSymbol) {
+      setSymbol(initialSymbol);
+    }
+  }, [initialSymbol]);
   const [positionSide, setPositionSide] = useState<"LONG" | "SHORT">("LONG");
   const [quantity, setQuantity] = useState<string>("0.1");
   const [leverage, setLeverage] = useState<number>(1);
@@ -129,7 +139,7 @@ export const TradingOrderCard: React.FC<{ initialSymbol?: string }> = ({
   };
 
   const maxAllowedLeverage = tournament?.maxLeverage || 10;
-  const availableTickers = POPULAR_TICKERS;
+  const availableTickers = customTickers || POPULAR_TICKERS;
 
   return (
     <div className="rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-sm">
