@@ -23,7 +23,7 @@ export interface Env {
 
 export interface MarketQuote {
   symbol: string;
-  asset_type: "Crypto" | "Stock";
+  asset_type: "Crypto" | "Stock" | "Futures";
   price: number;
   change_24h_pct: number;
   previous_close: number;
@@ -89,4 +89,26 @@ export interface LeaderboardEntry {
   roePct: number;
   openPositionsCount: number;
   rank: number;
+}
+
+export interface TournamentRecord {
+  id: string;
+  title: string;
+  description: string;
+  creator_id: string;
+  creator_name: string;
+  initial_capital: number;
+  max_leverage: number;
+  allow_short: number;
+  fee_crypto_bps: number;
+  fee_stock_bps: number;
+  status: "ACTIVE" | "ENDED";
+  created_at: number;
+  ended_at: number | null;
+  allowed_symbols: string;
+  rebalance_day?: string;
+  trading_start_time?: string;
+  trading_end_time?: string;
+  max_trades_per_week?: number;
+  tournament_type?: "PORTFOLIO" | "FUTURES" | string;
 }

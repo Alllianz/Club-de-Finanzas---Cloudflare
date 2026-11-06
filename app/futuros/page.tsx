@@ -7,6 +7,7 @@ import {
   SiteHeader,
 } from "../components/site-shell";
 import { getPortfolioContent } from "../lib/public-content";
+import { FuturosEngineViewer } from "./components/FuturosEngineViewer";
 
 export default async function FuturosPage() {
   const { featured, feed } = await getPortfolioContent();
@@ -42,6 +43,20 @@ export default async function FuturosPage() {
         eyebrow="Área de Futuros & Derivados"
         title="Mercado de Derivados, Coberturas y Tasas Implícitas"
         description="Investigación cuantitativa en futuros financieros, modelado de curvas de tasas implícitas, estrategias de cobertura cambiaria y análisis de arbitraje en los mercados locales e internacionales."
+        aside={
+          <div className="flex flex-wrap items-center gap-4">
+            <a
+              href="#terminal-futuros"
+              className="inline-flex items-center gap-2 rounded-xl bg-[#0b1727] px-6 py-3.5 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-md transition hover:bg-[#1e3a8a] active:scale-[0.99]"
+            >
+              <span>⚡ Acceder al Terminal de Paper Trading de Futuros</span>
+              <span>↓</span>
+            </a>
+            <span className="text-xs font-medium text-[#64748b]">
+              Simulador institucional en vivo · Dólar Matba Rofex, Soja, Maíz, Commodities y Coberturas
+            </span>
+          </div>
+        }
       />
 
       <main className="mx-auto w-[min(1320px,92vw)] space-y-16 py-14 md:space-y-20 md:py-20">
@@ -96,6 +111,11 @@ export default async function FuturosPage() {
             <FeedGrid items={feed} />
           </section>
         )}
+
+        {/* Terminal Cuantitativo Oficial de Futuros & Paper Trading */}
+        <section id="terminal-futuros" className="pt-10 border-t border-[#e2e8f0] scroll-mt-24">
+          <FuturosEngineViewer />
+        </section>
       </main>
 
       <SiteFooter />

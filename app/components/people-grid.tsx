@@ -7,10 +7,10 @@ type PeopleGridProps = {
 
 export function PeopleGrid({ people }: PeopleGridProps) {
   return (
-    <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
       {people.map((person) => (
         <article
-          key={person.name}
+          key={`${person.name}-${person.role}`}
           className="flex flex-col rounded-2xl border border-[#e2e8f0] bg-[#ffffff] p-6 shadow-sm transition hover:border-[#0062ff]"
         >
           <div className="flex items-center gap-4">

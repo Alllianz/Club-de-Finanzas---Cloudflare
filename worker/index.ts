@@ -10,6 +10,13 @@ import {
   closePosition,
   getTradesHistory,
   getLeaderboard,
+  getActiveTournament,
+  getTournamentById,
+  getAllTournaments,
+  getGroupParticipations,
+  joinTournament,
+  saveTournament,
+  deleteTournament,
   DEFAULT_GAME_ID,
 } from "./paper-engine";
 import { ejecutarOptimizacionCartera } from "./portfolio-quant/markowitz-optimizer";
@@ -84,7 +91,7 @@ export default {
     }
 
     // =========================================================================
-    // 1B. AUTENTICACIÓN ADMINISTRATIVA (Usuario: Allianz / Contraseña: Fausto)
+    // 1B. AUTENTICACIÓN ADMINISTRATIVA (Usuario: Allianz / Contraseña: LuciaSape)
     // =========================================================================
     if (url.pathname === "/api/admin/auth/login" && request.method === "POST") {
       try {
@@ -96,7 +103,7 @@ export default {
         const username = (body.username || "").trim();
         const password = (body.password || "").trim();
 
-        if (username.toLowerCase() !== "allianz" || password !== "Fausto") {
+        if (username.toLowerCase() !== "allianz" || password !== "LuciaSape") {
           return new Response(
             JSON.stringify({
               success: false,
@@ -179,7 +186,8 @@ export default {
           );
         }
 
-        const result = await getMarkedPortfolio(env.DB, groupId);
+        const targetGameId = url.searchParams.get("gameId")?.trim() || undefined;
+        const result = await getMarkedPortfolio(env.DB, groupId, targetGameId);
         return new Response(
           JSON.stringify({ success: true, data: result }),
           { status: 200, headers: corsHeaders }
@@ -209,6 +217,7 @@ export default {
 
         const body = (await request.json().catch(() => ({}))) as {
           groupId?: string;
+          gameId?: string;
           symbol?: string;
           positionSide?: "LONG" | "SHORT";
           quantity?: number;
@@ -230,6 +239,7 @@ export default {
           quantity: Number(body.quantity),
           leverage: body.leverage,
           marginMode: body.marginMode,
+          gameId: body.gameId?.trim() || undefined,
         });
 
         return new Response(
@@ -262,6 +272,7 @@ export default {
         const body = (await request.json().catch(() => ({}))) as {
           groupId?: string;
           positionId?: string;
+          gameId?: string;
         };
 
         const groupId = body.groupId?.trim();
@@ -273,7 +284,8 @@ export default {
           );
         }
 
-        const closeResult = await closePosition(env.DB, groupId, positionId);
+        const targetGameId = body.gameId?.trim() || undefined;
+        const closeResult = await closePosition(env.DB, groupId, positionId, targetGameId);
         return new Response(
           JSON.stringify({ success: true, data: closeResult }),
           { status: 200, headers: corsHeaders }
@@ -309,7 +321,8 @@ export default {
           );
         }
 
-        const trades = await getTradesHistory(env.DB, groupId);
+        const targetGameId = url.searchParams.get("gameId")?.trim() || undefined;
+        const trades = await getTradesHistory(env.DB, groupId, targetGameId);
         return new Response(
           JSON.stringify({ success: true, data: trades }),
           { status: 200, headers: corsHeaders }
@@ -337,7 +350,8 @@ export default {
           );
         }
 
-        const leaderboard = await getLeaderboard(env.DB);
+        const targetGameId = url.searchParams.get("gameId")?.trim() || undefined;
+        const leaderboard = await getLeaderboard(env.DB, targetGameId);
         return new Response(
           JSON.stringify({ success: true, data: leaderboard }),
           { status: 200, headers: corsHeaders }
@@ -349,6 +363,277 @@ export default {
             error: err instanceof Error ? err.message : "Error al generar leaderboard.",
           }),
           { status: 500, headers: corsHeaders }
+        );
+      }
+    }
+
+    // =========================================================================
+    // 7B. LISTA DE TORNEOS DISPONIBLES & ELECCIÓN DE LOS GRUPOS
+    // =========================================================================
+    if (url.pathname === "/api/paper/tournaments" && request.method === "GET") {
+      try {
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Base de datos D1 no disponible." }),
+            { status: 503, headers: corsHeaders }
+          );
+        }
+
+        const groupId = (url.searchParams.get("groupId") || "").trim();
+        const marketType = (url.searchParams.get("marketType") || "").trim();
+        const list = await getAllTournaments(env.DB, marketType);
+        const participations = groupId ? await getGroupParticipations(env.DB, groupId) : [];
+        const partSet = new Set(participations);
+
+        const formatted = list.map((t) => ({
+          id: t.id,
+          title: t.title,
+          description: t.description,
+          creatorId: t.creator_id,
+          creatorName: t.creator_name,
+          initialCapital: t.initial_capital,
+          maxLeverage: t.max_leverage,
+          allowShort: t.allow_short === 1,
+          allowedSymbols: t.allowed_symbols
+            ? t.allowed_symbols.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+            : [],
+          rebalanceDay: t.rebalance_day || "",
+          tradingStartTime: t.trading_start_time || "",
+          tradingEndTime: t.trading_end_time || "",
+          maxTradesPerWeek: t.max_trades_per_week || 0,
+          tournamentType: t.tournament_type || (t.id.includes("futur") ? "FUTURES" : "PORTFOLIO"),
+          status: t.status,
+          createdAt: t.created_at,
+          isJoined: partSet.has(t.id) || t.id === "torneo-club-2026" || t.id === "torneo-futuros-2026",
+        }));
+
+        return new Response(
+          JSON.stringify({ success: true, data: formatted }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al consultar torneos.",
+          }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
+    }
+
+    if (url.pathname === "/api/paper/tournaments/join" && request.method === "POST") {
+      try {
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Base de datos D1 no disponible." }),
+            { status: 503, headers: corsHeaders }
+          );
+        }
+
+        const body = (await request.json().catch(() => ({}))) as {
+          groupId?: string;
+          tournamentId?: string;
+        };
+
+        const groupId = (body.groupId || "").trim();
+        const tournamentId = (body.tournamentId || "").trim();
+
+        if (!groupId || !tournamentId) {
+          return new Response(
+            JSON.stringify({ success: false, error: "groupId y tournamentId son requeridos." }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+
+        const res = await joinTournament(env.DB, groupId, tournamentId);
+        return new Response(
+          JSON.stringify({ success: true, data: res }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al unirse al torneo.",
+          }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+    }
+
+    // =========================================================================
+    // 7B2. ELIMINACIÓN DE TORNEOS (Exclusivo para Allianz)
+    // =========================================================================
+    if (url.pathname === "/api/paper/tournaments/delete" && request.method === "POST") {
+      try {
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Base de datos D1 no disponible." }),
+            { status: 503, headers: corsHeaders }
+          );
+        }
+
+        const body = (await request.json().catch(() => ({}))) as {
+          creatorId?: string;
+          tournamentId?: string;
+        };
+
+        const creatorId = (body.creatorId || "").trim().toLowerCase();
+        const tournamentId = (body.tournamentId || "").trim();
+
+        if (creatorId !== "allianz") {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "Acceso denegado: solo Allianz tiene permisos para eliminar torneos.",
+            }),
+            { status: 403, headers: corsHeaders }
+          );
+        }
+
+        if (!tournamentId) {
+          return new Response(
+            JSON.stringify({ success: false, error: "tournamentId es requerido." }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+
+        const res = await deleteTournament(env.DB, creatorId, tournamentId);
+        return new Response(
+          JSON.stringify({ success: true, data: res }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al eliminar torneo.",
+          }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
+    }
+
+    // =========================================================================
+    // 7C. TORNEO ACTIVO Y GOBERNANZA COMPETITIVA (Configurado por Allianz)
+    // =========================================================================
+    if (url.pathname === "/api/paper/tournament" && request.method === "GET") {
+      try {
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Base de datos D1 no disponible." }),
+            { status: 503, headers: corsHeaders }
+          );
+        }
+
+        const marketType = (url.searchParams.get("marketType") || "").trim();
+        const tournament = await getActiveTournament(env.DB, marketType);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: tournament
+              ? {
+                  id: tournament.id,
+                  title: tournament.title,
+                  description: tournament.description,
+                  creatorId: tournament.creator_id,
+                  creatorName: tournament.creator_name,
+                  initialCapital: tournament.initial_capital,
+                  maxLeverage: tournament.max_leverage,
+                  allowShort: tournament.allow_short === 1,
+                  allowedSymbols: tournament.allowed_symbols
+                    ? tournament.allowed_symbols.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+                    : [],
+                  rebalanceDay: tournament.rebalance_day || "",
+                  tradingStartTime: tournament.trading_start_time || "",
+                  tradingEndTime: tournament.trading_end_time || "",
+                  maxTradesPerWeek: tournament.max_trades_per_week || 0,
+                  tournamentType: tournament.tournament_type || (tournament.id.includes("futur") ? "FUTURES" : "PORTFOLIO"),
+                  status: tournament.status,
+                  createdAt: tournament.created_at,
+                }
+              : null,
+          }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al obtener torneo activo.",
+          }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
+    }
+
+    if (url.pathname === "/api/paper/tournament" && request.method === "POST") {
+      try {
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Base de datos D1 no disponible." }),
+            { status: 503, headers: corsHeaders }
+          );
+        }
+
+        const body = (await request.json().catch(() => ({}))) as {
+          creatorId?: string;
+          title?: string;
+          description?: string;
+          allowShort?: boolean;
+          allowedSymbols?: string[];
+          maxLeverage?: number;
+          initialCapital?: number;
+          rebalanceDay?: string;
+          tradingStartTime?: string;
+          tradingEndTime?: string;
+          maxTradesPerWeek?: number;
+          resetBalances?: boolean;
+          createNew?: boolean;
+          tournamentType?: string;
+          marketType?: string;
+        };
+
+        const creatorId = (body.creatorId || "").trim().toLowerCase();
+        if (creatorId !== "allianz") {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "Acceso denegado: solo el usuario Allianz tiene permisos para administrar torneos.",
+            }),
+            { status: 403, headers: corsHeaders }
+          );
+        }
+
+        const result = await saveTournament(env.DB, creatorId, {
+          title: body.title || "Torneo Oficial - Club de Finanzas UBA",
+          description: body.description || "",
+          allow_short: body.allowShort ?? true,
+          allowed_symbols: body.allowedSymbols || [],
+          max_leverage: body.maxLeverage,
+          initial_capital: body.initialCapital,
+          rebalance_day: body.rebalanceDay,
+          trading_start_time: body.tradingStartTime,
+          trading_end_time: body.tradingEndTime,
+          max_trades_per_week: body.maxTradesPerWeek,
+          reset_balances: body.resetBalances,
+          createNew: body.createNew,
+          tournament_type: body.tournamentType || body.marketType,
+          marketType: body.marketType,
+        });
+
+        return new Response(
+          JSON.stringify({ success: true, data: result }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al configurar torneo.",
+          }),
+          { status: 400, headers: corsHeaders }
         );
       }
     }

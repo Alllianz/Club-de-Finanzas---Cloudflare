@@ -4,17 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import { SiteHeader, SiteFooter } from "../components/site-shell";
 import { useMemberAuth } from "@/context/MemberAuthContext";
-import { GroupTradingProvider, useGroupTrading } from "./context/GroupTradingContext";
-import { GroupLoginCard } from "./components/GroupLoginCard";
-import { PaperTradingDashboard } from "./components/PaperTradingDashboard";
-
 function MiembrosPageContent() {
   const { member, isLoading: isMemberLoading, register, requestOtp, verifyOtp, logout: memberLogout } =
     useMemberAuth();
-  const { currentGroup, isLoading: isGroupLoading } = useGroupTrading();
-
-  // Sección principal activa: "paper_trading" (Grupos) o "individual" (Miembros individuales)
-  const [section, setSection] = useState<"paper_trading" | "individual">("paper_trading");
 
   // Estados de vista y formularios individuales
   const [tab, setTab] = useState<"register" | "login">("login");
@@ -96,85 +88,35 @@ function MiembrosPageContent() {
     }
   };
 
-  const isLoading = isMemberLoading || isGroupLoading;
-
   return (
     <div className="min-h-screen bg-[#ffffff] font-sans text-[#334155]">
       <SiteHeader currentPath="/miembros" />
 
-      {isLoading ? (
-        <div className="flex min-h-[60vh] items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#0b1727] border-t-transparent" />
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">
-              Cargando Portal de Miembros...
-            </p>
-          </div>
-        </div>
-      ) : (
-        <main className="py-10 md:py-16">
-          <div className="mx-auto w-[min(1320px,94vw)]">
-            {/* Selector de Nivel Superior: Paper Trading (Grupos) vs Portal Individual */}
-            <div className="mb-10 flex flex-col items-center justify-between gap-4 border-b border-[#e5e7eb] pb-6 sm:flex-row">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="h-[2px] w-4 bg-[#b89047]" />
-                  <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]">
-                    Facultad de Ciencias Económicas · UBA
-                  </span>
-                </div>
-                <h1 className="mt-1 font-serif text-2xl font-bold tracking-tight text-[#0b1727] sm:text-3xl">
-                  Portal Exclusivo de Miembros
-                </h1>
+      <main className="py-10 md:py-16">
+        <div className="mx-auto w-[min(1320px,94vw)]">
+          {/* Encabezado del Portal de Miembros */}
+          <div className="mb-10 flex flex-col items-start justify-between gap-4 border-b border-[#e5e7eb] pb-6">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="h-[2px] w-4 bg-[#b89047]" />
+                <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]">
+                  Facultad de Ciencias Económicas · UBA
+                </span>
               </div>
-
-              <div className="inline-flex rounded-xl border border-[#e5e7eb] bg-[#fafaf9] p-1 shadow-xs">
-                <button
-                  type="button"
-                  onClick={() => setSection("paper_trading")}
-                  className={`rounded-lg px-5 py-2.5 text-xs font-bold uppercase tracking-[0.12em] transition-all ${
-                    section === "paper_trading"
-                      ? "bg-[#0b1727] text-white shadow-xs"
-                      : "text-[#64748b] hover:text-[#0b1727]"
-                  }`}
-                >
-                  ⚡ Paper Trading (Grupos 1 - 6)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSection("individual")}
-                  className={`rounded-lg px-5 py-2.5 text-xs font-bold uppercase tracking-[0.12em] transition-all ${
-                    section === "individual"
-                      ? "bg-[#0b1727] text-white shadow-xs"
-                      : "text-[#64748b] hover:text-[#0b1727]"
-                  }`}
-                >
-                  📚 Tesis & Research
-                </button>
-              </div>
+              <h1 className="mt-1 font-serif text-2xl font-bold tracking-tight text-[#0b1727] sm:text-3xl">
+                Portal de Miembros & Alumnos
+              </h1>
+              <p className="mt-1 text-xs text-[#64748b]">
+                Acceso a tesis de valuación, publicaciones académicas y material formativo del Club de Finanzas UBA.
+              </p>
             </div>
+          </div>
 
-            {/* =========================================================================
-                SECCIÓN A: PAPER TRADING INSTITUCIONAL PARA LOS 6 GRUPOS
-               ========================================================================= */}
-            {section === "paper_trading" && (
-              <div>
-                {currentGroup ? (
-                  <PaperTradingDashboard />
-                ) : (
-                  <div className="py-8">
-                    <GroupLoginCard />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* =========================================================================
-                SECCIÓN B: PORTAL INDIVIDUAL (TESIS, RESEARCH Y OPTIMIZADOR)
-               ========================================================================= */}
-            {section === "individual" && (
-              <div>
-                {!member ? (
+          {/* =========================================================================
+              PORTAL DE ALUMNOS (TESIS, RESEARCH Y DESCARGAS)
+             ========================================================================= */}
+          <div>
+            {!member ? (
                   <div className="mx-auto max-w-2xl py-6">
                     <div className="text-center">
                       <h2 className="font-serif text-3xl font-bold tracking-tight text-[#0b1727]">
@@ -361,7 +303,29 @@ function MiembrosPageContent() {
                     </div>
 
                     {/* Contenido Reservado */}
-                    <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
+                      <article className="flex flex-col justify-between rounded-xl border border-[#b89047]/40 bg-gradient-to-b from-white to-[#fafaf9] p-7 shadow-xs">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#b89047] bg-[#b89047]/10 border border-[#b89047]/30 px-2.5 py-1 rounded">
+                            Paper Trading
+                          </span>
+                          <h3 className="mt-4 font-serif text-xl font-bold text-[#0b1727]">
+                            Terminal de Futuros & Derivados
+                          </h3>
+                          <p className="mt-2 text-xs text-[#64748b]">
+                            Simulación en tiempo real de Dólar Rofex, Commodities, Coberturas y Torneos de Derivados.
+                          </p>
+                        </div>
+                        <div className="mt-6">
+                          <Link
+                            href="/futuros#terminal-futuros"
+                            className="inline-flex w-full items-center justify-center rounded-md bg-[#b89047] py-2.5 text-xs font-bold uppercase tracking-[0.1em] text-white hover:bg-[#a67c33]"
+                          >
+                            Abrir Paper Trading →
+                          </Link>
+                        </div>
+                      </article>
+
                       <article className="flex flex-col justify-between rounded-xl border border-[#e5e7eb] bg-white p-7 shadow-xs">
                         <div>
                           <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#1e3a8a] bg-[#f8fafc] border border-[#e5e7eb] px-2.5 py-1 rounded">
@@ -433,10 +397,8 @@ function MiembrosPageContent() {
                   </div>
                 )}
               </div>
-            )}
           </div>
         </main>
-      )}
 
       <SiteFooter />
     </div>
@@ -444,9 +406,5 @@ function MiembrosPageContent() {
 }
 
 export default function MiembrosPage() {
-  return (
-    <GroupTradingProvider>
-      <MiembrosPageContent />
-    </GroupTradingProvider>
-  );
+  return <MiembrosPageContent />;
 }

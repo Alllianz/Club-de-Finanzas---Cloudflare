@@ -45,11 +45,17 @@ export const OFFICIAL_GROUPS: Record<string, GroupConfig> = {
     password: "GOOG",
     assignedAsset: "GOOG",
   },
+  allianz: {
+    id: "allianz",
+    name: "Allianz",
+    password: "LuciaSape",
+    assignedAsset: "SPY",
+  },
 };
 
 /**
  * Normaliza el identificador de grupo para admitir:
- * "Grupo1", "Grupo 1", "grupo1", "GRUPO 1", etc.
+ * "Grupo1", "Grupo 1", "grupo1", "GRUPO 1", "Allianz", etc.
  */
 export function normalizeGroupId(input: string): string | null {
   if (!input) return null;
@@ -61,12 +67,13 @@ export function normalizeGroupId(input: string): string | null {
   if (clean === "grupo4" || clean === "4") return "grupo_4";
   if (clean === "grupo5" || clean === "5") return "grupo_5";
   if (clean === "grupo6" || clean === "6") return "grupo_6";
+  if (clean === "allianz") return "allianz";
   
   return null;
 }
 
 /**
- * Verifica usuario y contraseña hardcodeados de los 6 grupos
+ * Verifica usuario y contraseña hardcodeados de los grupos y Allianz
  */
 export function authenticateGroupCredentials(
   userInput: string,
@@ -76,7 +83,7 @@ export function authenticateGroupCredentials(
   if (!normId || !OFFICIAL_GROUPS[normId]) {
     return {
       success: false,
-      error: "Grupo no reconocido. Debe ser Grupo 1, Grupo 2, Grupo 3, Grupo 4, Grupo 5 o Grupo 6.",
+      error: "Usuario o grupo no reconocido.",
     };
   }
 

@@ -3,6 +3,7 @@ import {
   homeFeed,
   homeFeatured,
   leadership,
+  defaultTeamBySection,
   newsFeed,
   newsIntro,
   portfolioFeed,
@@ -153,12 +154,12 @@ export async function getTeamMembersContent(fallback: Person[] = leadership) {
   } catch {
     return {
       leaders: fallback,
-      membersBySection: {
+      membersBySection: (defaultTeamBySection as Record<TeamSection, Person[]>) || {
         LEADERSHIP: fallback,
         PORTFOLIO: [],
         RESEARCH: [],
         RRII: [],
-      } as Record<TeamSection, Person[]>,
+      },
     };
   }
 }

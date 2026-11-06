@@ -1,11 +1,36 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useGroupTrading } from "../context/GroupTradingContext";
+import { realtimePriceStream, RealtimePriceTick } from "../services/realtimePriceStream";
 
 export const PositionsTable: React.FC = () => {
   const { positions, closePosition, isActionLoading } = useGroupTrading();
   const [closingId, setClosingId] = useState<string | null>(null);
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const unsubscribers: (() => void)[] = [];
+    positions.forEach((p) => {
+      const isCrypto =
+        p.symbol.endsWith("-USD") ||
+        p.symbol.endsWith("USDT") ||
+        p.symbol.includes("BTC") ||
+        p.symbol.includes("ETH") ||
+        p.symbol.includes("SOL");
+
+      if (isCrypto) {
+        const unsub = realtimePriceStream.subscribe(p.symbol, (tick: RealtimePriceTick) => {
+          setLivePrices((prev) => ({ ...prev, [p.symbol]: tick.price }));
+        });
+        unsubscribers.push(unsub);
+      }
+    });
+
+    return () => {
+      unsubscribers.forEach((u) => u());
+    };
+  }, [positions]);
 
   const handleClose = async (posId: string, symbol: string) => {
     if (!confirm(`¿Confirmás el cierre a precio de mercado de la posición en ${symbol}?`)) {
@@ -57,10 +82,19 @@ export const PositionsTable: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-[#f1f5f9]">
               {positions.map((pos) => {
-                const isProfitable = pos.unrealized_pnl >= 0;
+                const currentPrice = livePrices[pos.symbol] ?? pos.current_price;
+                const priceDiff =
+                  pos.side === "LONG"
+                    ? currentPrice - pos.entry_price
+                    : pos.entry_price - currentPrice;
+                const unrealizedPnl =
+                  livePrices[pos.symbol] !== undefined
+                    ? priceDiff * pos.quantity
+                    : pos.unrealized_pnl;
+                const isProfitable = unrealizedPnl >= 0;
                 const pnlPct =
                   pos.initial_margin > 0
-                    ? (pos.unrealized_pnl / pos.initial_margin) * 100
+                    ? (unrealizedPnl / pos.initial_margin) * 100
                     : 0;
 
                 return (
@@ -91,7 +125,12 @@ export const PositionsTable: React.FC = () => {
                       ${pos.entry_price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td className="py-3.5 px-3 font-mono font-bold text-[#0b1727]">
-                      ${pos.current_price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <div className="flex items-center gap-1">
+                        <span>${currentPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        {livePrices[pos.symbol] !== undefined && (
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" title="Precio en vivo 1s" />
+                        )}
+                      </div>
                     </td>
                     <td className="py-3.5 px-3 font-mono text-red-600">
                       {pos.liquidation_price > 0
@@ -108,7 +147,7 @@ export const PositionsTable: React.FC = () => {
                         }`}
                       >
                         {isProfitable ? "+" : ""}
-                        ${pos.unrealized_pnl.toFixed(2)}
+                        ${unrealizedPnl.toFixed(2)}
                       </div>
                       <div
                         className={`text-[10px] font-mono ${

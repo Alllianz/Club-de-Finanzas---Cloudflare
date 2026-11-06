@@ -1,15 +1,14 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { POPULAR_TICKERS } from "../constants/groups";
-import { fetchQuote } from "../services/paperApi";
-import { LiveMarketQuote } from "../types/paper-trading";
 import { useGroupTrading } from "../context/GroupTradingContext";
+import { useLiveQuote } from "../hooks/useLiveQuote";
 
 export const TradingOrderCard: React.FC<{ initialSymbol?: string }> = ({
   initialSymbol = "BTC-USD",
 }) => {
-  const { placeOrder, isActionLoading, portfolio } = useGroupTrading();
+  const { placeOrder, isActionLoading, portfolio, tournament } = useGroupTrading();
 
   const [symbol, setSymbol] = useState<string>(initialSymbol);
   const [positionSide, setPositionSide] = useState<"LONG" | "SHORT">("LONG");
@@ -17,49 +16,46 @@ export const TradingOrderCard: React.FC<{ initialSymbol?: string }> = ({
   const [leverage, setLeverage] = useState<number>(1);
   const [marginMode, setMarginMode] = useState<"ISOLATED" | "CROSS">("ISOLATED");
 
-  const [quote, setQuote] = useState<LiveMarketQuote | null>(null);
-  const [quoteLoading, setQuoteLoading] = useState<boolean>(false);
-  const [quoteError, setQuoteError] = useState<string | null>(null);
   const [orderFeedback, setOrderFeedback] = useState<{ type: "success" | "error"; text: string } | null>(
     null
   );
 
-  // Cargar cotización cuando cambia el símbolo
-  useEffect(() => {
-    let active = true;
-    const loadQuote = async () => {
-      if (!symbol.trim()) return;
-      setQuoteLoading(true);
-      setQuoteError(null);
-      try {
-        const q = await fetchQuote(symbol.trim().toUpperCase());
-        if (active) {
-          setQuote(q);
-          // Ajustar cantidad default inteligente según activo
-          if (q.asset_type === "Crypto") {
-            if (q.price > 10000) setQuantity("0.05");
-            else setQuantity("1.0");
-          } else {
-            setQuantity("10");
-          }
-        }
-      } catch (err) {
-        if (active) {
-          setQuoteError(err instanceof Error ? err.message : "Error al obtener cotización.");
-          setQuote(null);
-        }
-      } finally {
-        if (active) setQuoteLoading(false);
-      }
-    };
+  // Cotización ultra-rápida y en vivo (WebSocket 1s para Crypto / Edge Cache para Acciones)
+  const {
+    quote,
+    isLoading: quoteLoading,
+    isLiveStreaming,
+    priceDirection,
+    error: quoteError,
+  } = useLiveQuote(symbol);
 
-    loadQuote();
-    const interval = setInterval(loadQuote, 15000);
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, [symbol]);
+  // Asegurar cumplimiento estricto de las reglas del torneo activo
+  useEffect(() => {
+    if (tournament) {
+      // 1. Si Short no está permitido, forzar posición LONG
+      if (!tournament.allowShort && positionSide === "SHORT") {
+        setPositionSide("LONG");
+      }
+      // 2. Limitar apalancamiento al máximo del torneo
+      if (tournament.maxLeverage && leverage > tournament.maxLeverage) {
+        setLeverage(tournament.maxLeverage);
+      }
+    }
+  }, [tournament, positionSide, leverage]);
+
+  // Ajustar cantidad default inteligente según activo seleccionado
+  const lastNormalizedSymbol = useRef<string>("");
+  useEffect(() => {
+    if (quote && lastNormalizedSymbol.current !== quote.symbol) {
+      lastNormalizedSymbol.current = quote.symbol;
+      if (quote.asset_type === "Crypto") {
+        if (quote.price > 10000) setQuantity("0.05");
+        else setQuantity("1.0");
+      } else {
+        setQuantity("10");
+      }
+    }
+  }, [quote]);
 
   // Cálculos en tiempo real
   const qtyNum = parseFloat(quantity) || 0;
@@ -110,6 +106,14 @@ export const TradingOrderCard: React.FC<{ initialSymbol?: string }> = ({
       return;
     }
 
+    if (positionSide === "SHORT" && tournament && !tournament.allowShort) {
+      setOrderFeedback({
+        type: "error",
+        text: "Las operaciones en corto (SHORT) no están permitidas en este torneo. Solo se permiten operaciones LONG.",
+      });
+      return;
+    }
+
     const res = await placeOrder(symbol, positionSide, qtyNum, leverage, marginMode);
     if (res.success) {
       setOrderFeedback({
@@ -124,14 +128,37 @@ export const TradingOrderCard: React.FC<{ initialSymbol?: string }> = ({
     }
   };
 
+  const maxAllowedLeverage = tournament?.maxLeverage || 10;
+  const availableTickers = POPULAR_TICKERS;
+
   return (
     <div className="rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-sm">
       <div className="border-b border-[#f1f5f9] pb-4">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="h-[2px] w-4 bg-[#b89047]" />
           <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]">
             Terminal de Órdenes
           </span>
+          {tournament && !tournament.allowShort && (
+            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-300">
+              🔒 Modo Solo Long
+            </span>
+          )}
+          {tournament && tournament.rebalanceDay && (
+            <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-[10px] font-bold text-blue-800 border border-blue-300">
+              📅 Rebalanceo: {tournament.rebalanceDay === "WED" ? "Miércoles" : tournament.rebalanceDay === "MON" ? "Lunes" : tournament.rebalanceDay === "FRI" ? "Viernes" : tournament.rebalanceDay}
+            </span>
+          )}
+          {tournament && tournament.tradingStartTime && tournament.tradingEndTime && (
+            <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-[10px] font-bold text-indigo-800 border border-indigo-300">
+              ⏰ {tournament.tradingStartTime} - {tournament.tradingEndTime} hs
+            </span>
+          )}
+          {tournament && tournament.maxTradesPerWeek && tournament.maxTradesPerWeek > 0 && (
+            <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-[10px] font-bold text-purple-800 border border-purple-300">
+              🎯 Máx. {tournament.maxTradesPerWeek} ops/sem
+            </span>
+          )}
         </div>
         <h3 className="mt-1 font-serif text-xl font-bold text-[#0b1727]">
           Nueva Posición Apalancada
@@ -160,7 +187,7 @@ export const TradingOrderCard: React.FC<{ initialSymbol?: string }> = ({
             Activo Financiero (Ticker)
           </label>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {POPULAR_TICKERS.map((t) => (
+            {availableTickers.map((t) => (
               <button
                 key={t.symbol}
                 type="button"
@@ -187,20 +214,56 @@ export const TradingOrderCard: React.FC<{ initialSymbol?: string }> = ({
         </div>
 
         {/* Resumen de Cotización en Vivo */}
-        {quoteLoading ? (
+        {quoteLoading && !quote ? (
           <div className="rounded-lg border border-[#e5e7eb] bg-[#fafaf9] p-3 text-center text-xs text-[#64748b]">
             Consultando cotización de mercado...
           </div>
         ) : quote ? (
-          <div className="rounded-lg border border-[#e5e7eb] bg-[#fafaf9] p-3.5">
+          <div
+            className={`rounded-lg border p-3.5 transition-all duration-300 ${
+              priceDirection === "up"
+                ? "border-emerald-500 bg-emerald-50/80 shadow-xs"
+                : priceDirection === "down"
+                ? "border-red-500 bg-red-50/80 shadow-xs"
+                : "border-[#e5e7eb] bg-[#fafaf9]"
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748b]">
-                  {quote.asset_type} · Precio Spot Actual
-                </span>
-                <p className="font-mono text-xl font-extrabold text-[#0b1727]">
-                  ${quote.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
-                </p>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748b]">
+                    {quote.asset_type} · Precio Spot Actual
+                  </span>
+                  {isLiveStreaming ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-bold text-emerald-800 border border-emerald-300">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-ping" />
+                      Stream 1s
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-700 border border-slate-200">
+                      Edge Cache
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <p
+                    className={`font-mono text-xl font-extrabold transition-colors duration-200 ${
+                      priceDirection === "up"
+                        ? "text-emerald-700 font-black"
+                        : priceDirection === "down"
+                        ? "text-red-700 font-black"
+                        : "text-[#0b1727]"
+                    }`}
+                  >
+                    ${quote.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                  </p>
+                  {priceDirection === "up" && (
+                    <span className="text-emerald-600 font-bold text-xs animate-bounce">▲</span>
+                  )}
+                  {priceDirection === "down" && (
+                    <span className="text-red-600 font-bold text-xs animate-bounce">▼</span>
+                  )}
+                </div>
               </div>
               <div className="text-right">
                 <span
@@ -244,14 +307,29 @@ export const TradingOrderCard: React.FC<{ initialSymbol?: string }> = ({
             </button>
             <button
               type="button"
-              onClick={() => setPositionSide("SHORT")}
+              disabled={tournament ? !tournament.allowShort : false}
+              onClick={() => {
+                if (tournament && !tournament.allowShort) return;
+                setPositionSide("SHORT");
+              }}
+              title={
+                tournament && !tournament.allowShort
+                  ? "Operaciones en corto (SHORT) deshabilitadas por las reglas del Torneo"
+                  : "Abrir posición corta"
+              }
               className={`rounded-lg border py-2.5 px-4 text-xs font-bold transition flex items-center justify-center gap-2 ${
-                positionSide === "SHORT"
+                tournament && !tournament.allowShort
+                  ? "cursor-not-allowed border-[#e2e8f0] bg-[#f1f5f9] text-[#94a3b8] opacity-60"
+                  : positionSide === "SHORT"
                   ? "border-red-600 bg-red-600 text-white shadow-xs"
                   : "border-[#e5e7eb] bg-[#fafaf9] text-[#475569] hover:bg-white"
               }`}
             >
-              <span>▼ SHORT (Baja / Venta en Corto)</span>
+              <span>
+                {tournament && !tournament.allowShort
+                  ? "🔒 SHORT (Bloqueado)"
+                  : "▼ SHORT (Baja / Venta en Corto)"}
+              </span>
             </button>
           </div>
         </div>
@@ -288,20 +366,20 @@ export const TradingOrderCard: React.FC<{ initialSymbol?: string }> = ({
           </div>
         </div>
 
-        {/* Selector de Apalancamiento (1x a 10x) */}
+        {/* Selector de Apalancamiento (1x a maxAllowedLeverage) */}
         <div>
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
               Apalancamiento Regulado
             </label>
             <span className="font-mono text-xs font-bold text-[#1e3a8a] bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-              {leverage}x
+              {leverage}x (Límite: {maxAllowedLeverage}x)
             </span>
           </div>
           <input
             type="range"
             min={1}
-            max={10}
+            max={maxAllowedLeverage}
             step={1}
             value={leverage}
             onChange={(e) => setLeverage(parseInt(e.target.value, 10))}
@@ -309,9 +387,8 @@ export const TradingOrderCard: React.FC<{ initialSymbol?: string }> = ({
           />
           <div className="flex justify-between text-[10px] font-mono text-[#64748b]">
             <span>1x (Spot)</span>
-            <span>2x</span>
-            <span>5x</span>
-            <span>10x (Máx)</span>
+            {maxAllowedLeverage > 2 && <span>{Math.floor(maxAllowedLeverage / 2)}x</span>}
+            <span>{maxAllowedLeverage}x (Máx Torneo)</span>
           </div>
         </div>
 

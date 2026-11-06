@@ -8,23 +8,37 @@ import { TradingOrderCard } from "./TradingOrderCard";
 import { PositionsTable } from "./PositionsTable";
 import { TradesHistoryTable } from "./TradesHistoryTable";
 import { GroupLeaderboard } from "./GroupLeaderboard";
+import { TournamentSelector } from "./TournamentSelector";
 
 export const PaperTradingDashboard: React.FC = () => {
-  const { currentGroup, logout, refreshTradingData, isActionLoading } = useGroupTrading();
+  const { currentGroup, tournament, logout, refreshTradingData, isActionLoading } = useGroupTrading();
   const [selectedSymbol, setSelectedSymbol] = useState<string>(
     currentGroup?.assignedAsset || "BTC-USD"
   );
 
   return (
     <div className="space-y-8">
+      {/* Selector de Torneos Disponibles y Cambio de Competencia */}
+      <TournamentSelector />
+
       {/* Barra Superior del Grupo Autenticado */}
       <div className="flex flex-col justify-between gap-4 rounded-xl border border-[#0b1727] bg-[#0b1727] p-6 text-white shadow-sm md:flex-row md:items-center">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="h-[2px] w-4 bg-[#b89047]" />
             <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#93c5fd]">
               Terminal de Operaciones Activo
             </span>
+            {currentGroup?.id === "allianz" && (
+              <span className="rounded-full bg-[#b89047]/20 border border-[#b89047]/50 px-2 py-0.5 text-[10px] font-bold text-[#facc15]">
+                👑 Administrador de Torneo
+              </span>
+            )}
+            {tournament && !tournament.allowShort && (
+              <span className="rounded-full bg-amber-500/20 border border-amber-400/40 px-2 py-0.5 text-[10px] font-bold text-amber-300">
+                🔒 Regla de Torneo: Solo Long
+              </span>
+            )}
           </div>
           <h1 className="mt-1 font-serif text-2xl font-bold tracking-tight sm:text-3xl">
             {currentGroup?.name} · Asignación y Paper Trading

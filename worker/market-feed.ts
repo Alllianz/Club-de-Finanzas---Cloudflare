@@ -16,10 +16,18 @@ export function normalizeSymbol(raw: string): string {
 }
 
 /**
- * Infiere el tipo de activo (Crypto vs Stock)
+ * Infiere el tipo de activo (Crypto, Stock, Futures)
  */
-export function inferAssetType(symbol: string): "Crypto" | "Stock" {
+export function inferAssetType(symbol: string): "Crypto" | "Stock" | "Futures" {
   const norm = normalizeSymbol(symbol);
+  if (
+    norm.endsWith("=F") ||
+    norm.includes("PERP") ||
+    norm.startsWith("DLR-") ||
+    norm.startsWith("ROFEX")
+  ) {
+    return "Futures";
+  }
   if (
     norm.endsWith("-USD") ||
     norm.endsWith("-USDT") ||
@@ -34,14 +42,20 @@ export function inferAssetType(symbol: string): "Crypto" | "Stock" {
 }
 
 /**
- * Verifica si el mercado bursátil está abierto según horario oficial de Nueva York (ET)
- * Crypto opera 24/7/365
+ * Verifica si el mercado está abierto
  */
-export function getMarketHoursStatus(assetType: "Crypto" | "Stock"): { isOpen: boolean; message: string } {
+export function getMarketHoursStatus(assetType: "Crypto" | "Stock" | "Futures"): { isOpen: boolean; message: string } {
   if (assetType === "Crypto") {
     return {
       isOpen: true,
       message: "Mercado Crypto 24/7 Abierto",
+    };
+  }
+
+  if (assetType === "Futures") {
+    return {
+      isOpen: true,
+      message: "Mercado de Futuros Continuo (CME / Derivados)",
     };
   }
 
@@ -94,15 +108,130 @@ export function getMarketHoursStatus(assetType: "Crypto" | "Stock"): { isOpen: b
   }
 }
 
+interface QuoteCacheEntry {
+  quote: MarketQuote;
+  expiresAt: number;
+}
+
+const quoteCache = new Map<string, QuoteCacheEntry>();
+const CACHE_TTL_MS = 3000; // 3 segundos de caché en memoria Edge para evitar rate-limit
+
 /**
- * Consulta la cotización en vivo desde Yahoo Finance
+ * Consulta de ultra-baja latencia para Criptomonedas vía Binance API
+ */
+async function fetchBinanceCryptoQuote(symbol: string): Promise<MarketQuote | null> {
+  try {
+    let pair = symbol.toUpperCase().replace("-USD", "USDT").replace("-", "");
+    if (pair === "BTC") pair = "BTCUSDT";
+    if (pair === "ETH") pair = "ETHUSDT";
+    if (pair === "SOL") pair = "SOLUSDT";
+
+    const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "AegisQuantEngine/2.0",
+      },
+    });
+
+    if (!res.ok) return null;
+    const data = (await res.json()) as any;
+    const price = parseFloat(data.lastPrice);
+    const changePct = parseFloat(data.priceChangePercent);
+    const prevClose = parseFloat(data.prevClosePrice);
+
+    if (isNaN(price)) return null;
+
+    return {
+      symbol,
+      asset_type: "Crypto",
+      price,
+      change_24h_pct: isNaN(changePct) ? 0 : changePct,
+      previous_close: isNaN(prevClose) ? price : prevClose,
+      is_market_open: true,
+      status_message: "Mercado Crypto 24/7 Abierto (Binance Spot Stream)",
+      timestamp_ms: Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Consulta la cotización en vivo desde Yahoo Finance o Binance con Caché Edge
  * Implementa Zero Look-Ahead Bias utilizando la última cotización real en el instante de ejecución.
  */
 export async function fetchLiveMarketQuote(rawSymbol: string): Promise<MarketQuote> {
   const symbol = normalizeSymbol(rawSymbol);
-  const assetType = inferAssetType(symbol);
-  const marketStatus = getMarketHoursStatus(assetType);
+  const now = Date.now();
 
+  // 1. Verificar si existe en la caché Edge y sigue vigente
+  const cached = quoteCache.get(symbol);
+  if (cached && now < cached.expiresAt) {
+    return cached.quote;
+  }
+
+  const assetType = inferAssetType(symbol);
+
+  // 2. Si es Cripto o Cripto Perpetuo, consultar primero el feed de Binance Spot/Perp
+  if (assetType === "Crypto" || symbol.includes("PERP")) {
+    const cleanSym = symbol.replace("-PERP", "-USD");
+    const binanceQuote = await fetchBinanceCryptoQuote(cleanSym);
+    if (binanceQuote) {
+      binanceQuote.symbol = symbol;
+      binanceQuote.asset_type = assetType;
+      quoteCache.set(symbol, {
+        quote: binanceQuote,
+        expiresAt: now + CACHE_TTL_MS,
+      });
+      return binanceQuote;
+    }
+  }
+
+  // 2B. Si es Dólar Futuro Matba Rofex (DLR-*), derivar de USDARS=X + curva de tasas implícitas
+  if (symbol.startsWith("DLR-")) {
+    const usdQuote = await fetchLiveMarketQuote("USDARS=X");
+    const spotPrice = usdQuote.price || 1545.0;
+
+    let daysToMaturity = 30;
+    let tna = 0.385; // 38.5% TNA implícita de referencia
+    if (symbol.includes("ABR") || symbol.includes("APR")) {
+      daysToMaturity = 25;
+      tna = 0.385;
+    } else if (symbol.includes("MAY")) {
+      daysToMaturity = 56;
+      tna = 0.392;
+    } else if (symbol.includes("JUN")) {
+      daysToMaturity = 86;
+      tna = 0.400;
+    } else if (symbol.includes("JUL")) {
+      daysToMaturity = 117;
+      tna = 0.408;
+    }
+
+    const futurePrice = spotPrice * (1 + tna * (daysToMaturity / 365));
+    const prevFuturePrice = usdQuote.previous_close * (1 + tna * (daysToMaturity / 365));
+    const chgPct = prevFuturePrice > 0 ? ((futurePrice - prevFuturePrice) / prevFuturePrice) * 100 : 0;
+
+    const rofexQuote: MarketQuote = {
+      symbol,
+      asset_type: "Futures",
+      price: Math.round(futurePrice * 100) / 100,
+      change_24h_pct: Math.round(chgPct * 100) / 100,
+      previous_close: Math.round(prevFuturePrice * 100) / 100,
+      is_market_open: true,
+      status_message: `Matba Rofex DLR - TNA Implícita ${(tna * 100).toFixed(1)}% (${daysToMaturity} días)`,
+      timestamp_ms: Date.now(),
+    };
+
+    quoteCache.set(symbol, {
+      quote: rofexQuote,
+      expiresAt: now + CACHE_TTL_MS,
+    });
+    return rofexQuote;
+  }
+
+  // 3. Consulta a Yahoo Finance para Acciones (Wall Street) o Fallback
+  const marketStatus = getMarketHoursStatus(assetType);
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
   
   const res = await fetch(url, {
@@ -132,7 +261,7 @@ export async function fetchLiveMarketQuote(rawSymbol: string): Promise<MarketQuo
   const prevClose = meta.previousClose ?? meta.chartPreviousClose ?? price;
   const changePct = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
 
-  return {
+  const quote: MarketQuote = {
     symbol: meta.symbol || symbol,
     asset_type: assetType,
     price: Number(price),
@@ -142,4 +271,12 @@ export async function fetchLiveMarketQuote(rawSymbol: string): Promise<MarketQuo
     status_message: marketStatus.message,
     timestamp_ms: Date.now(),
   };
+
+  // Guardar en caché Edge
+  quoteCache.set(symbol, {
+    quote,
+    expiresAt: now + CACHE_TTL_MS,
+  });
+
+  return quote;
 }

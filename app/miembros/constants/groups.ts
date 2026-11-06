@@ -44,6 +44,12 @@ export const CLUB_GROUPS: GroupDefinition[] = [
     assignedAsset: "GOOG",
     defaultPasswordHint: "GOOG",
   },
+  {
+    id: "allianz",
+    name: "Allianz",
+    assignedAsset: "SPY",
+    defaultPasswordHint: "Allianz",
+  },
 ];
 
 export const POPULAR_TICKERS = [

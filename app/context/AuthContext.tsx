@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const trimmedUser = (username || "").trim();
     const trimmedPass = (pass || "").trim();
 
-    if (trimmedUser.toLowerCase() === "allianz" && trimmedPass === "Fausto") {
+    if (trimmedUser.toLowerCase() === "allianz" && trimmedPass === "LuciaSape") {
       const adminUser: AuthUser = {
         id: "admin_allianz",
         email: "allianz@clubdefinanzas.uba.ar",

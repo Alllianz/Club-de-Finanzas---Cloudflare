@@ -9,7 +9,7 @@ export interface GroupAuthSession {
 
 export interface LiveMarketQuote {
   symbol: string;
-  asset_type: "Crypto" | "Stock";
+  asset_type: "Crypto" | "Stock" | "Futures";
   price: number;
   change_24h_pct: number;
   previous_close: number;
@@ -80,4 +80,41 @@ export interface LeaderboardItem {
   roePct: number;
   openPositionsCount: number;
   rank: number;
+}
+
+export interface TournamentSettings {
+  id: string;
+  title: string;
+  description: string;
+  creatorId: string;
+  creatorName: string;
+  initialCapital: number;
+  maxLeverage: number;
+  allowShort: boolean;
+  allowedSymbols: string[];
+  rebalanceDay?: string;
+  tradingStartTime?: string;
+  tradingEndTime?: string;
+  maxTradesPerWeek?: number;
+  tournamentType?: "PORTFOLIO" | "FUTURES" | string;
+  isJoined?: boolean;
+  status: string;
+  createdAt: number;
+}
+
+export interface SaveTournamentParams {
+  creatorId: string;
+  title: string;
+  description?: string;
+  allowShort: boolean;
+  allowedSymbols: string[];
+  maxLeverage?: number;
+  initialCapital?: number;
+  rebalanceDay?: string;
+  tradingStartTime?: string;
+  tradingEndTime?: string;
+  maxTradesPerWeek?: number;
+  resetBalances?: boolean;
+  createNew?: boolean;
+  tournamentType?: "PORTFOLIO" | "FUTURES" | string;
 }

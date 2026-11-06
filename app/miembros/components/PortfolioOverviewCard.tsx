@@ -4,10 +4,11 @@ import React from "react";
 import { useGroupTrading } from "../context/GroupTradingContext";
 
 export const PortfolioOverviewCard: React.FC = () => {
-  const { currentGroup, portfolio, positions } = useGroupTrading();
+  const { currentGroup, portfolio, positions, tournament } = useGroupTrading();
 
-  const equity = portfolio?.equity ?? 10000;
-  const cash = portfolio?.cash_balance ?? 10000;
+  const baseCapital = tournament?.initialCapital ?? 10000;
+  const equity = portfolio?.equity ?? baseCapital;
+  const cash = portfolio?.cash_balance ?? baseCapital;
   const usedMargin = portfolio?.used_margin ?? 0;
   const unrealized = portfolio?.unrealized_pnl ?? 0;
   const realized = portfolio?.realized_pnl ?? 0;
@@ -33,7 +34,9 @@ export const PortfolioOverviewCard: React.FC = () => {
           <p className="mt-1 text-xs text-[#64748b]">
             Activo insignia asignado:{" "}
             <span className="font-bold text-[#0b1727]">{currentGroup?.assignedAsset}</span> · Capital inicial de competencia:{" "}
-            <span className="font-mono font-bold text-[#0b1727]">$10,000.00 USD</span>
+            <span className="font-mono font-bold text-[#0b1727]">
+              ${baseCapital.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+            </span>
           </p>
         </div>
 
