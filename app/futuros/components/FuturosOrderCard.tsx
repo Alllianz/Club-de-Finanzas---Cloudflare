@@ -186,6 +186,44 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
           </div>
         </div>
 
+        {/* Selector de Modo de Margen (Aislado vs Cruzado) */}
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-[#475569]">
+              Modo de Margen
+            </label>
+            <span className="text-[10px] font-mono text-[#64748b]">
+              {marginMode === "ISOLATED" ? "Riesgo Acotado a Posición" : "Colateral Compartido de Cuenta"}
+            </span>
+          </div>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setMarginMode("ISOLATED")}
+              className={`rounded-xl py-2 px-3 text-xs font-bold transition-all flex flex-col items-center justify-center ${
+                marginMode === "ISOLATED"
+                  ? "bg-[#0b1727] text-white shadow-sm ring-2 ring-[#0062ff]"
+                  : "border border-[#cbd5e1] bg-white text-[#475569] hover:bg-[#f8fafc]"
+              }`}
+            >
+              <span>Aislado (ISOLATED)</span>
+              <span className="text-[9px] opacity-80 font-normal">Margen independiente</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMarginMode("CROSS")}
+              className={`rounded-xl py-2 px-3 text-xs font-bold transition-all flex flex-col items-center justify-center ${
+                marginMode === "CROSS"
+                  ? "bg-[#0b1727] text-white shadow-sm ring-2 ring-[#0062ff]"
+                  : "border border-[#cbd5e1] bg-white text-[#475569] hover:bg-[#f8fafc]"
+              }`}
+            >
+              <span>Cruzado (CROSS)</span>
+              <span className="text-[9px] opacity-80 font-normal">Respaldo saldo total</span>
+            </button>
+          </div>
+        </div>
+
         {/* Cantidad de Contratos */}
         <div>
           <div className="flex items-center justify-between">
@@ -209,19 +247,23 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
           </div>
         </div>
 
-        {/* Selector de Apalancamiento y Margen */}
+        {/* Selector de Apalancamiento y Margen (hasta 100x) */}
         <div>
           <div className="flex items-center justify-between">
             <label className="text-[11px] font-bold uppercase tracking-wider text-[#475569]">
-              Apalancamiento: <span className="font-mono text-[#0062ff]">{leverage}x</span>
+              Apalancamiento: <span className="font-mono text-[#0062ff] font-bold">{leverage}x</span>
             </label>
             <span className="text-[10px] text-[#94a3b8]">
-              Máx: {selectedContract.maxLeverage}x
+              {leverage >= 50 ? (
+                <span className="font-bold text-amber-600">Alto Apalancamiento</span>
+              ) : (
+                `Máx: ${selectedContract.maxLeverage}x`
+              )}
             </span>
           </div>
           <div className="mt-2 flex items-center gap-1.5">
-            {[1, 2, 5, 10, selectedContract.maxLeverage]
-              .filter((val, idx, arr) => arr.indexOf(val) === idx && val <= selectedContract.maxLeverage)
+            {[1, 5, 10, 20, 50, 100]
+              .filter((val) => val <= selectedContract.maxLeverage)
               .map((val) => (
                 <button
                   key={val}
@@ -229,7 +271,7 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
                   onClick={() => setLeverage(val)}
                   className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition-all ${
                     leverage === val
-                      ? "bg-[#0b1727] text-white"
+                      ? "bg-[#0b1727] text-white shadow-sm ring-1 ring-[#0062ff]"
                       : "border border-[#e2e8f0] bg-[#f8fafc] text-[#475569] hover:bg-[#e2e8f0]"
                   }`}
                 >
@@ -237,6 +279,15 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
                 </button>
               ))}
           </div>
+          <input
+            type="range"
+            min={1}
+            max={selectedContract.maxLeverage}
+            step={1}
+            value={leverage}
+            onChange={(e) => setLeverage(parseInt(e.target.value, 10))}
+            className="mt-2 w-full accent-[#0062ff]"
+          />
         </div>
 
         {/* Desglose Cuantitativo y Márgenes */}

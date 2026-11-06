@@ -26,9 +26,9 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     category: "FX",
     multiplier: 1000, // 1 contrato = 1.000 USD
     tickSize: 0.1,
-    initialMarginPct: 0.12, // 12% margen (~8.3x)
-    maintenanceMarginPct: 0.08,
-    maxLeverage: 10,
+    initialMarginPct: 0.01, // Hasta 100x de apalancamiento
+    maintenanceMarginPct: 0.005,
+    maxLeverage: 100,
     maturityDate: "30/04/2026",
     daysToMaturity: 25,
     settlementType: "Cash",
@@ -41,9 +41,9 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     category: "FX",
     multiplier: 1000,
     tickSize: 0.1,
-    initialMarginPct: 0.12,
-    maintenanceMarginPct: 0.08,
-    maxLeverage: 10,
+    initialMarginPct: 0.01,
+    maintenanceMarginPct: 0.005,
+    maxLeverage: 100,
     maturityDate: "29/05/2026",
     daysToMaturity: 56,
     settlementType: "Cash",
@@ -56,9 +56,9 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     category: "FX",
     multiplier: 1000,
     tickSize: 0.1,
-    initialMarginPct: 0.14,
-    maintenanceMarginPct: 0.09,
-    maxLeverage: 8,
+    initialMarginPct: 0.01,
+    maintenanceMarginPct: 0.005,
+    maxLeverage: 100,
     maturityDate: "30/06/2026",
     daysToMaturity: 86,
     settlementType: "Cash",
@@ -73,9 +73,9 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     category: "Commodity",
     multiplier: 1000, // 1 contrato = 1.000 barriles
     tickSize: 0.01,
-    initialMarginPct: 0.10, // ~10x
-    maintenanceMarginPct: 0.05,
-    maxLeverage: 10,
+    initialMarginPct: 0.01, // Hasta 100x
+    maintenanceMarginPct: 0.005,
+    maxLeverage: 100,
     settlementType: "Cash",
     description: "Futuro del petróleo crudo WTI en NYMEX. Cobertura ante shocks energéticos y términos de intercambio.",
   },
@@ -86,9 +86,9 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     category: "Commodity",
     multiplier: 100, // 1 contrato = 100 onzas troy
     tickSize: 0.1,
-    initialMarginPct: 0.08, // ~12x
-    maintenanceMarginPct: 0.04,
-    maxLeverage: 15,
+    initialMarginPct: 0.01, // Hasta 100x
+    maintenanceMarginPct: 0.005,
+    maxLeverage: 100,
     settlementType: "Cash",
     description: "Activo de cobertura por excelencia contra volatilidad inflacionaria y riesgo geopolítico global.",
   },
@@ -99,9 +99,9 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     category: "Commodity",
     multiplier: 50, // Escala normalizada
     tickSize: 0.25,
-    initialMarginPct: 0.10,
-    maintenanceMarginPct: 0.05,
-    maxLeverage: 10,
+    initialMarginPct: 0.01,
+    maintenanceMarginPct: 0.005,
+    maxLeverage: 100,
     settlementType: "Cash",
     description: "Commodity agrícola crítico para el balance comercial argentino y la liquidación de divisas.",
   },
@@ -114,9 +114,9 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     category: "Index",
     multiplier: 50,
     tickSize: 0.25,
-    initialMarginPct: 0.05, // 20x apalancamiento máximo
-    maintenanceMarginPct: 0.03,
-    maxLeverage: 20,
+    initialMarginPct: 0.01, // Hasta 100x apalancamiento
+    maintenanceMarginPct: 0.005,
+    maxLeverage: 100,
     settlementType: "Cash",
     description: "El derivado de acciones más líquido del mundo en el Chicago Mercantile Exchange (CME).",
   },
@@ -127,9 +127,9 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     category: "Index",
     multiplier: 20,
     tickSize: 0.25,
-    initialMarginPct: 0.06, // ~16x
-    maintenanceMarginPct: 0.035,
-    maxLeverage: 16,
+    initialMarginPct: 0.01, // Hasta 100x
+    maintenanceMarginPct: 0.005,
+    maxLeverage: 100,
     settlementType: "Cash",
     description: "Derivado bursátil de alta volatilidad y exposición a empresas tecnológicas de gran capitalización.",
   },
@@ -142,11 +142,11 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     category: "Crypto",
     multiplier: 1,
     tickSize: 0.5,
-    initialMarginPct: 0.05,
-    maintenanceMarginPct: 0.025,
-    maxLeverage: 20,
+    initialMarginPct: 0.01,
+    maintenanceMarginPct: 0.005,
+    maxLeverage: 100,
     settlementType: "Cash",
-    description: "Contrato perpetuo continuo con financiamiento cada 8 horas y negociación 24/7.",
+    description: "Contrato perpetuo continuo con financiamiento cada 8 horas y apalancamiento de hasta 100x.",
   },
   {
     symbol: "ETH-USD",
@@ -155,11 +155,11 @@ export const FUTURES_CONTRACTS: FutureContractDef[] = [
     category: "Crypto",
     multiplier: 1,
     tickSize: 0.1,
-    initialMarginPct: 0.05,
-    maintenanceMarginPct: 0.025,
-    maxLeverage: 20,
+    initialMarginPct: 0.01,
+    maintenanceMarginPct: 0.005,
+    maxLeverage: 100,
     settlementType: "Cash",
-    description: "Contrato perpetuo sobre el token de contratos inteligentes de la red Ethereum.",
+    description: "Contrato perpetuo sobre el token de contratos inteligentes con apalancamiento de hasta 100x.",
   },
 ];
 

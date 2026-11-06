@@ -26,7 +26,7 @@ export const TournamentManagementPanel: React.FC = () => {
       : "Competencia de simulación de portafolios y gestión de riesgo para los grupos de finanzas."
   );
   const [allowShort, setAllowShort] = useState<boolean>(true);
-  const [maxLeverage, setMaxLeverage] = useState<number>(marketType === "FUTURES" ? 20 : 10);
+  const [maxLeverage, setMaxLeverage] = useState<number>(marketType === "FUTURES" ? 100 : 10);
   const [initialCapitalInput, setInitialCapitalInput] = useState<string>("10000");
   const [rebalanceDay, setRebalanceDay] = useState<string>("");
   const [tradingStartTime, setTradingStartTime] = useState<string>("");
@@ -51,7 +51,7 @@ export const TournamentManagementPanel: React.FC = () => {
       );
       setDescription(tournament.description || "");
       setAllowShort(tournament.allowShort);
-      setMaxLeverage(tournament.maxLeverage || (marketType === "FUTURES" ? 20 : 10));
+      setMaxLeverage(tournament.maxLeverage || (marketType === "FUTURES" ? 100 : 10));
       setInitialCapitalInput(String(tournament.initialCapital || 10000));
       setRebalanceDay(tournament.rebalanceDay || "");
       setTradingStartTime(tournament.tradingStartTime || "");
@@ -360,7 +360,14 @@ export const TournamentManagementPanel: React.FC = () => {
                   <option value={2}>2x</option>
                   <option value={3}>3x</option>
                   <option value={5}>5x</option>
-                  <option value={10}>10x (Apalancamiento Máximo)</option>
+                  <option value={10}>10x (Apalancamiento Estándar)</option>
+                  {marketType === "FUTURES" && (
+                    <>
+                      <option value={20}>20x (Futuros Rofex / CME)</option>
+                      <option value={50}>50x (Alta Cobertura Dinámica)</option>
+                      <option value={100}>100x (Máximo Institucional Derivados)</option>
+                    </>
+                  )}
                 </select>
               </div>
             </div>

@@ -8,7 +8,7 @@ import { OFFICIAL_GROUPS } from "./group-auth";
 export const DEFAULT_GAME_ID = "torneo-club-2026";
 export const DEFAULT_FUTURES_GAME_ID = "torneo-futuros-2026";
 export const INITIAL_CAPITAL = 10000.0;
-export const MAX_LEVERAGE = 10;
+export const MAX_LEVERAGE = 100;
 export const FEE_CRYPTO_BPS = 5; // 0.05%
 export const STOCK_COMMISSION_PER_SHARE = 0.005;
 export const STOCK_COMMISSION_MIN_USD = 1.0;
@@ -658,7 +658,7 @@ export async function ensureTournamentTypeMigration(db: D1Database) {
             initial_capital, max_leverage, allow_short,
             fee_crypto_bps, fee_stock_bps, status, created_at, ended_at, allowed_symbols,
             rebalance_day, trading_start_time, trading_end_time, max_trades_per_week, tournament_type
-          ) VALUES (?, ?, ?, 'allianz', 'Allianz', 10000.0, 20, 1, 5, 2, 'ACTIVE', ?, NULL, ?, '', '', '', 0, 'FUTURES')`
+          ) VALUES (?, ?, ?, 'allianz', 'Allianz', 10000.0, 100, 1, 5, 2, 'ACTIVE', ?, NULL, ?, '', '', '', 0, 'FUTURES')`
         )
         .bind(
           DEFAULT_FUTURES_GAME_ID,
@@ -687,6 +687,14 @@ export async function ensureTournamentTypeMigration(db: D1Database) {
           .run();
       }
     }
+
+    // Actualizar torneos de futuros previos que tenían max_leverage limitado por debajo de 100x
+    await db
+      .prepare(
+        "UPDATE games SET max_leverage = 100 WHERE (tournament_type = 'FUTURES' OR id = ?) AND max_leverage < 100"
+      )
+      .bind(DEFAULT_FUTURES_GAME_ID)
+      .run();
   } catch {
     // Silencioso
   }
@@ -847,7 +855,7 @@ export async function saveTournament(
     .map((s) => s.trim().toUpperCase())
     .filter(Boolean)
     .join(",");
-  const maxLeverage = Math.min(Math.max(1, Number(params.max_leverage) || 10), tournamentType === "FUTURES" ? 20 : 10);
+  const maxLeverage = Math.min(Math.max(1, Number(params.max_leverage) || 10), tournamentType === "FUTURES" ? 100 : 10);
   const initialCapital = Number(params.initial_capital) || 10000.0;
   const rebalanceDay = (params.rebalance_day || "").trim().toUpperCase();
   const tradingStartTime = (params.trading_start_time || "").trim();

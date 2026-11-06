@@ -54,7 +54,25 @@ export const TradesHistoryTable: React.FC = () => {
                       {dateStr}
                     </td>
                     <td className="py-2.5 px-3 font-bold text-[#0b1727]">
-                      {tr.symbol}
+                      <div className="flex items-center gap-1.5">
+                        <span>{tr.symbol}</span>
+                        {tr.leverage ? (
+                          <span className="rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[9px] font-mono text-[#64748b]">
+                            {tr.leverage}x
+                          </span>
+                        ) : null}
+                        {tr.margin_mode ? (
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[8px] font-mono font-bold ${
+                              tr.margin_mode === "CROSS"
+                                ? "bg-purple-100 text-purple-800 border border-purple-200"
+                                : "bg-blue-100 text-blue-800 border border-blue-200"
+                            }`}
+                          >
+                            {tr.margin_mode}
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="py-2.5 px-3">
                       <span

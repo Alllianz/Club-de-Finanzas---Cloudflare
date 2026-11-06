@@ -138,7 +138,7 @@ export const TradingOrderCard: React.FC<{
     }
   };
 
-  const maxAllowedLeverage = tournament?.maxLeverage || 10;
+  const maxAllowedLeverage = tournament?.maxLeverage || (customTickers ? 100 : 10);
   const availableTickers = customTickers || POPULAR_TICKERS;
 
   return (
@@ -365,26 +365,66 @@ export const TradingOrderCard: React.FC<{
             <label className="block text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
               Modo de Margen
             </label>
-            <select
-              value={marginMode}
-              onChange={(e) => setMarginMode(e.target.value as "ISOLATED" | "CROSS")}
-              className="mt-1.5 w-full rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-xs font-bold text-[#0b1727] focus:border-[#0b1727] focus:outline-none"
-            >
-              <option value="ISOLATED">ISOLATED (Aislado)</option>
-              <option value="CROSS">CROSS (Cruzado)</option>
-            </select>
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setMarginMode("ISOLATED")}
+                className={`rounded-md py-1.5 px-2 text-[11px] font-bold transition-all flex flex-col items-center justify-center ${
+                  marginMode === "ISOLATED"
+                    ? "bg-[#0b1727] text-white shadow-sm ring-2 ring-[#1e3a8a]"
+                    : "border border-[#cbd5e1] bg-white text-[#475569] hover:bg-[#f8fafc]"
+                }`}
+              >
+                <span>Aislado</span>
+                <span className="text-[9px] opacity-75 font-normal">ISOLATED</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMarginMode("CROSS")}
+                className={`rounded-md py-1.5 px-2 text-[11px] font-bold transition-all flex flex-col items-center justify-center ${
+                  marginMode === "CROSS"
+                    ? "bg-[#0b1727] text-white shadow-sm ring-2 ring-[#1e3a8a]"
+                    : "border border-[#cbd5e1] bg-white text-[#475569] hover:bg-[#f8fafc]"
+                }`}
+              >
+                <span>Cruzado</span>
+                <span className="text-[9px] opacity-75 font-normal">CROSS</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Selector de Apalancamiento (1x a maxAllowedLeverage) */}
+        {/* Selector de Apalancamiento (1x a maxAllowedLeverage, hasta 100x) */}
         <div>
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
-              Apalancamiento Regulado
+              Apalancamiento Regulado: <span className="font-mono text-[#1e3a8a]">{leverage}x</span>
             </label>
             <span className="font-mono text-xs font-bold text-[#1e3a8a] bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-              {leverage}x (Límite: {maxAllowedLeverage}x)
+              {leverage >= 50 ? (
+                <span className="text-amber-700 font-bold">100X Máx Institucional</span>
+              ) : (
+                `Límite: ${maxAllowedLeverage}x`
+              )}
             </span>
+          </div>
+          <div className="mt-2 flex items-center gap-1.5">
+            {[1, 5, 10, 20, 50, 100]
+              .filter((val) => val <= maxAllowedLeverage)
+              .map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setLeverage(val)}
+                  className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition-all ${
+                    leverage === val
+                      ? "bg-[#0b1727] text-white shadow-sm ring-1 ring-[#1e3a8a]"
+                      : "border border-[#e2e8f0] bg-[#f8fafc] text-[#475569] hover:bg-[#e2e8f0]"
+                  }`}
+                >
+                  {val}x
+                </button>
+              ))}
           </div>
           <input
             type="range"
@@ -397,8 +437,9 @@ export const TradingOrderCard: React.FC<{
           />
           <div className="flex justify-between text-[10px] font-mono text-[#64748b]">
             <span>1x (Spot)</span>
-            {maxAllowedLeverage > 2 && <span>{Math.floor(maxAllowedLeverage / 2)}x</span>}
-            <span>{maxAllowedLeverage}x (Máx Torneo)</span>
+            {maxAllowedLeverage > 10 && <span>20x</span>}
+            {maxAllowedLeverage > 50 && <span>50x</span>}
+            <span>{maxAllowedLeverage}x (Máx)</span>
           </div>
         </div>
 
@@ -424,9 +465,10 @@ export const TradingOrderCard: React.FC<{
           </div>
           {leverage > 1 && (
             <div className="flex justify-between border-t border-[#e2e8f0] pt-2 text-red-600">
-              <span>Precio de Liquidación Est.:</span>
+              <span>Precio de Liquidación Est. ({marginMode}):</span>
               <span className="font-mono font-bold">
                 ${estLiqPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {marginMode === "CROSS" && <span className="ml-1 text-[10px] text-[#64748b] font-normal">(Respaldo Global)</span>}
               </span>
             </div>
           )}

@@ -163,17 +163,17 @@ fn test_liquidation_and_bankruptcy_prices() {
 
 #[test]
 fn test_leverage_limits_by_asset_class() {
-    // Divisas: max 20x
-    assert!(LeverageValidator::validate_leverage(AssetClass::CurrencyFx, 20.0).is_ok());
-    assert!(LeverageValidator::validate_leverage(AssetClass::CurrencyFx, 20.1).is_err());
+    // Apalancamiento hasta 100x habilitado en derivados
+    assert!(LeverageValidator::validate_leverage(AssetClass::CurrencyFx, 100.0).is_ok());
+    assert!(LeverageValidator::validate_leverage(AssetClass::CurrencyFx, 100.1).is_err());
 
-    // Commodities: max 10x
-    assert!(LeverageValidator::validate_leverage(AssetClass::Commodity, 10.0).is_ok());
-    assert!(LeverageValidator::validate_leverage(AssetClass::Commodity, 15.0).is_err());
+    // Commodities: hasta 100x
+    assert!(LeverageValidator::validate_leverage(AssetClass::Commodity, 100.0).is_ok());
+    assert!(LeverageValidator::validate_leverage(AssetClass::Commodity, 105.0).is_err());
 
-    // Cripto: max 5x
-    assert!(LeverageValidator::validate_leverage(AssetClass::Crypto, 5.0).is_ok());
-    assert!(LeverageValidator::validate_leverage(AssetClass::Crypto, 10.0).is_err());
+    // Cripto: hasta 100x
+    assert!(LeverageValidator::validate_leverage(AssetClass::Crypto, 100.0).is_ok());
+    assert!(LeverageValidator::validate_leverage(AssetClass::Crypto, 101.0).is_err());
 }
 
 #[test]

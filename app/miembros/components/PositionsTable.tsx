@@ -105,6 +105,15 @@ export const PositionsTable: React.FC = () => {
                         <span className="rounded bg-[#f1f5f9] px-1.5 py-0.5 text-[9px] font-mono text-[#64748b]">
                           {pos.leverage}x
                         </span>
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[8px] font-mono font-bold ${
+                            pos.margin_mode === "CROSS"
+                              ? "bg-purple-100 text-purple-800 border border-purple-200"
+                              : "bg-blue-100 text-blue-800 border border-blue-200"
+                          }`}
+                        >
+                          {pos.margin_mode || "ISOLATED"}
+                        </span>
                       </div>
                     </td>
                     <td className="py-3.5 px-3">
