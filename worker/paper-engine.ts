@@ -624,12 +624,33 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string): Pro
   const groups = Object.values(OFFICIAL_GROUPS);
   const leaderboard: LeaderboardEntry[] = [];
 
+  // Obtener nombres personalizados de equipos si existen en D1
+  const customNamesMap: Record<string, string> = {};
+  try {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS group_custom_names (
+      group_id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`).run();
+    const rows = await db.prepare("SELECT group_id, display_name FROM group_custom_names").all();
+    if (rows && rows.results) {
+      for (const r of rows.results as any[]) {
+        if (r.group_id && r.display_name) {
+          customNamesMap[r.group_id] = r.display_name;
+        }
+      }
+    }
+  } catch {
+    // Si la tabla no existe o falla la consulta, se mantiene el fallback por defecto
+  }
+
   for (const group of groups) {
+    const finalGroupName = customNamesMap[group.id] || group.name;
     try {
       const data = await getMarkedPortfolio(db, group.id, gameId);
       leaderboard.push({
         groupId: group.id,
-        groupName: group.name,
+        groupName: finalGroupName,
         initialCapital: initialCap,
         cashBalance: data.portfolio.cash_balance,
         usedMargin: data.portfolio.used_margin,
@@ -644,7 +665,7 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string): Pro
     } catch {
       leaderboard.push({
         groupId: group.id,
-        groupName: group.name,
+        groupName: finalGroupName,
         initialCapital: initialCap,
         cashBalance: initialCap,
         usedMargin: 0,

@@ -14,9 +14,7 @@ import { checkTournamentDateRange, formatTournamentDate } from "../utils/tournam
 
 export const PaperTradingDashboard: React.FC = () => {
   const { currentGroup, tournament, logout, refreshTradingData, isActionLoading } = useGroupTrading();
-  const [selectedSymbol, setSelectedSymbol] = useState<string>(
-    currentGroup?.assignedAsset || "BTC-USD"
-  );
+  const [selectedSymbol, setSelectedSymbol] = useState<string>("");
 
   const dateStatus = checkTournamentDateRange(tournament);
 
@@ -65,8 +63,7 @@ export const PaperTradingDashboard: React.FC = () => {
             {currentGroup?.name} · Asignación y Paper Trading
           </h1>
           <p className="mt-1 text-xs text-[#94a3b8]">
-            Sesión institucional autenticada · Activo asignado:{" "}
-            <span className="font-mono font-bold text-white">{currentGroup?.assignedAsset}</span>
+            Sesión institucional autenticada · Operatoria multiactivo libre y trading cuantitativo
           </p>
         </div>
 

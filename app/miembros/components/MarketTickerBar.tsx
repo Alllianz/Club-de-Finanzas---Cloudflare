@@ -115,7 +115,7 @@ export const MarketTickerBar: React.FC<{
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
           <span className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#0b1727]">
-            En Vivo 1s
+            En Vivo 10s
           </span>
         </div>
 

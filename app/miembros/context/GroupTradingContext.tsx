@@ -25,6 +25,7 @@ import {
   joinTournamentApi,
   saveTournamentApi,
   deleteTournamentApi,
+  renameGroupApi,
 } from "../services/paperApi";
 
 interface GroupTradingContextType {
@@ -51,6 +52,7 @@ interface GroupTradingContextType {
     params: Omit<SaveTournamentParams, "creatorId">
   ) => Promise<{ success: boolean; error?: string }>;
   deleteTournament: (tournamentId: string) => Promise<{ success: boolean; error?: string }>;
+  renameGroup: (groupId: string, newName: string) => Promise<{ success: boolean; error?: string }>;
   placeOrder: (
     symbol: string,
     side: "BUY" | "SELL" | "LONG" | "SHORT",
@@ -279,6 +281,31 @@ export const GroupTradingProvider: React.FC<{
     localStorage.removeItem(TOURNAMENT_STORAGE_KEY);
   };
 
+  const renameGroup = async (groupId: string, newName: string) => {
+    setIsActionLoading(true);
+    setErrorMessage(null);
+    try {
+      const res = await renameGroupApi(groupId, newName);
+      if (res.success) {
+        if (currentGroup && (currentGroup.id === groupId || currentGroup.id === groupId.toLowerCase())) {
+          const updated = { ...currentGroup, name: newName };
+          setCurrentGroup(updated);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        }
+        await refreshTradingData();
+        setIsActionLoading(false);
+        return { success: true };
+      } else {
+        setIsActionLoading(false);
+        return { success: false, error: res.error || "No se pudo actualizar el nombre del equipo." };
+      }
+    } catch (err) {
+      setIsActionLoading(false);
+      const msg = err instanceof Error ? err.message : "Error al renombrar equipo.";
+      return { success: false, error: msg };
+    }
+  };
+
   const placeOrder = async (
     symbol: string,
     side: "BUY" | "SELL" | "LONG" | "SHORT",
@@ -459,6 +486,7 @@ export const GroupTradingProvider: React.FC<{
         refreshTournament,
         saveTournamentConfig,
         deleteTournament,
+        renameGroup,
         placeOrder,
         cancelOrder,
         closePosition,

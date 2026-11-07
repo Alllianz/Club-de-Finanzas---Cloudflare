@@ -249,3 +249,26 @@ export async function saveTournamentApi(
     };
   }
 }
+
+export async function renameGroupApi(
+  groupId: string,
+  newName: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/paper/group/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupId, newName }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || "No se pudo actualizar el nombre del equipo." };
+    }
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Error de red al intentar renombrar equipo.",
+    };
+  }
+}

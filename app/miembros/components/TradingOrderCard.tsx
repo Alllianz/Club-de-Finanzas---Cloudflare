@@ -10,7 +10,7 @@ export const TradingOrderCard: React.FC<{
   initialSymbol?: string;
   customTickers?: { symbol: string; label?: string; type?: string }[];
 }> = ({
-  initialSymbol = "BTC-USD",
+  initialSymbol = "",
   customTickers,
 }) => {
   const { placeOrder, isActionLoading, portfolio, positions, pendingOrders, tournament } = useGroupTrading();
@@ -336,35 +336,18 @@ export const TradingOrderCard: React.FC<{
           </div>
         </div>
 
-        {/* Selector de Símbolo Rápido */}
+        {/* Entrada de Ticker / Activo Financiero */}
         <div>
           <label className="block text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
             Activo Financiero (Ticker)
           </label>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {availableTickers.map((t) => (
-              <button
-                key={t.symbol}
-                type="button"
-                onClick={() => setSymbol(t.symbol)}
-                className={`rounded-md border px-2.5 py-1 text-xs font-mono font-bold transition ${
-                  symbol.toUpperCase() === t.symbol
-                    ? "border-[#0b1727] bg-[#0b1727] text-white"
-                    : "border-[#e5e7eb] bg-[#fafaf9] text-[#475569] hover:bg-white"
-                }`}
-              >
-                {t.symbol}
-              </button>
-            ))}
-          </div>
-
           <input
             type="text"
             value={symbol}
             onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-            placeholder="O ingresá un ticker personalizado (ej. NVDA, TSLA, MSFT)..."
+            placeholder="Ingresá el ticker a operar (ej. NVDA, AAPL, GGAL, BTC-USD, SPY)..."
             required
-            className="mt-2 w-full rounded-md border border-[#cbd5e1] bg-white px-3.5 py-2 font-mono text-sm text-[#0b1727] placeholder-[#94a3b8] focus:border-[#0b1727] focus:outline-none"
+            className="mt-2 w-full rounded-lg border border-[#cbd5e1] bg-white px-3.5 py-2.5 font-mono text-sm font-bold text-[#0b1727] placeholder-[#94a3b8] focus:border-[#0b1727] focus:outline-none"
           />
         </div>
 
@@ -392,7 +375,7 @@ export const TradingOrderCard: React.FC<{
                   {isLiveStreaming ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-bold text-emerald-800 border border-emerald-300">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-ping" />
-                      Stream 1s
+                      Stream 10s
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-700 border border-slate-200">

@@ -1,10 +1,39 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useGroupTrading } from "../context/GroupTradingContext";
 
 export const GroupLeaderboard: React.FC = () => {
-  const { leaderboard, currentGroup } = useGroupTrading();
+  const { leaderboard, currentGroup, renameGroup } = useGroupTrading();
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editNameValue, setEditNameValue] = useState<string>("");
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleStartEdit = (groupId: string, currentName: string) => {
+    setEditingGroupId(groupId);
+    setEditNameValue(currentName);
+    setErrorMsg(null);
+  };
+
+  const handleSaveRename = async (groupId: string) => {
+    const trimmed = editNameValue.trim();
+    if (!trimmed) {
+      setErrorMsg("El nombre no puede estar vacío.");
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMsg(null);
+    const res = await renameGroup(groupId, trimmed);
+    setIsSaving(false);
+
+    if (res.success) {
+      setEditingGroupId(null);
+    } else {
+      setErrorMsg(res.error || "No se pudo actualizar el nombre.");
+    }
+  };
 
   return (
     <div className="rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-sm">
@@ -23,24 +52,33 @@ export const GroupLeaderboard: React.FC = () => {
             Competencia de asignación táctica y trading cuantitativo en tiempo real.
           </p>
         </div>
+
+        {errorMsg && (
+          <span className="rounded-lg bg-red-50 border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600">
+            {errorMsg}
+          </span>
+        )}
       </div>
 
       <div className="mt-4 overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="border-b border-[#e5e7eb] text-[10px] font-bold uppercase tracking-[0.1em] text-[#64748b]">
-              <th className="py-3 px-3 text-center">Pos.</th>
-              <th className="py-3 px-3">Equipo / Grupo</th>
+              <th className="py-3 px-3 text-center w-[50px]">Pos.</th>
+              <th className="py-3 px-3 min-w-[280px] md:w-[340px]">Equipo / Grupo</th>
               <th className="py-3 px-3">Patrimonio (Equity)</th>
               <th className="py-3 px-3">Retorno (ROE)</th>
               <th className="py-3 px-3">PnL Realizado</th>
               <th className="py-3 px-3">PnL Flotante</th>
-              <th className="py-3 px-3 text-center">Posiciones</th>
+              <th className="py-3 px-3 text-center w-[85px]">Posiciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#f1f5f9]">
             {leaderboard.map((item) => {
               const isCurrent = currentGroup?.id === item.groupId;
+              const isAllianz = currentGroup?.id === "allianz";
+              const canEdit = isCurrent || isAllianz;
+              const isEditing = editingGroupId === item.groupId;
               const isRoePositive = item.roePct >= 0;
 
               return (
@@ -52,7 +90,7 @@ export const GroupLeaderboard: React.FC = () => {
                       : "hover:bg-[#fafaf9]"
                   }`}
                 >
-                  <td className="py-3.5 px-3 text-center">
+                  <td className="py-3.5 px-3 text-center w-[50px]">
                     <span
                       className={`inline-flex h-6 w-6 items-center justify-center rounded-full font-mono text-xs font-bold ${
                         item.rank === 1
@@ -67,16 +105,71 @@ export const GroupLeaderboard: React.FC = () => {
                       {item.rank}
                     </span>
                   </td>
-                  <td className="py-3.5 px-3">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-[#0b1727]">{item.groupName}</span>
-                      {isCurrent && (
-                        <span className="rounded bg-[#0b1727] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
-                          Tu Grupo
-                        </span>
-                      )}
-                    </div>
+
+                  {/* Columna Equipo / Grupo Más Ancha con Edición de Nombre */}
+                  <td className="py-3.5 px-3 min-w-[280px] md:w-[340px]">
+                    {isEditing ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={editNameValue}
+                          onChange={(e) => setEditNameValue(e.target.value)}
+                          placeholder="Nuevo nombre de equipo..."
+                          autoFocus
+                          disabled={isSaving}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveRename(item.groupId);
+                            if (e.key === "Escape") setEditingGroupId(null);
+                          }}
+                          className="w-full rounded-lg border border-[#0062ff] bg-white px-3 py-1 text-xs font-bold text-[#0b1727] outline-none shadow-xs focus:ring-1 focus:ring-[#0062ff]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveRename(item.groupId)}
+                          disabled={isSaving}
+                          title="Guardar nombre"
+                          className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                          {isSaving ? "..." : "✓"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingGroupId(null)}
+                          disabled={isSaving}
+                          title="Cancelar"
+                          className="rounded-lg bg-[#e2e8f0] px-2 py-1 text-xs font-bold text-[#475569] transition hover:bg-[#cbd5e1]"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-[#0b1727] text-sm">
+                            {item.groupName}
+                          </span>
+                          {isCurrent && (
+                            <span className="rounded bg-[#0b1727] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                              Tu Grupo
+                            </span>
+                          )}
+                        </div>
+
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => handleStartEdit(item.groupId, item.groupName)}
+                            className="inline-flex items-center gap-1 rounded-md border border-[#e2e8f0] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#64748b] transition hover:border-[#0062ff] hover:text-[#0062ff] shadow-2xs"
+                            title="Cambiar nombre del equipo"
+                          >
+                            <span>✏️</span>
+                            <span>Editar</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
+
                   <td className="py-3.5 px-3 font-mono font-bold text-[#0b1727]">
                     ${item.equity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
@@ -98,7 +191,9 @@ export const GroupLeaderboard: React.FC = () => {
                       ${item.unrealizedPnl.toFixed(2)}
                     </span>
                   </td>
-                  <td className="py-3.5 px-3 text-center font-mono text-[#64748b]">
+
+                  {/* Columna Posiciones Más Angosta */}
+                  <td className="py-3.5 px-3 text-center w-[85px] font-mono font-bold text-[#64748b]">
                     {item.openPositionsCount}
                   </td>
                 </tr>

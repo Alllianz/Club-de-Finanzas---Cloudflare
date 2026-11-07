@@ -282,7 +282,7 @@ function PortfolioEngineViewerInner() {
             </div>
 
             <span className="text-xs font-semibold text-[#64748b]">
-              Operando como: <strong className="text-[#0b1727]">{currentGroup.name}</strong> ({currentGroup.assignedAsset})
+              Operando como: <strong className="text-[#0b1727]">{currentGroup.name}</strong>
             </span>
           </div>
 

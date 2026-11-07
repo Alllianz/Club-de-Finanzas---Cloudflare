@@ -469,6 +469,57 @@ export default {
     }
 
     // =========================================================================
+    // 6B. EDICIÓN DE NOMBRE DE EQUIPO / GRUPO (Personalización en Leaderboard)
+    // =========================================================================
+    if (url.pathname === "/api/paper/group/rename" && request.method === "POST") {
+      try {
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Base de datos D1 no disponible." }),
+            { status: 503, headers: corsHeaders }
+          );
+        }
+
+        const body = (await request.json().catch(() => ({}))) as any;
+        const groupId = (body.groupId || "").trim();
+        const newName = (body.newName || "").trim();
+
+        if (!groupId || !newName) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Se requiere groupId y el nuevo nombre del equipo." }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+
+        // Crear tabla de nombres personalizados si no existe
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS group_custom_names (
+          group_id TEXT PRIMARY KEY,
+          display_name TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        )`).run();
+
+        // Guardar o actualizar nombre
+        await env.DB.prepare(`INSERT INTO group_custom_names (group_id, display_name, updated_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(group_id) DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.updated_at
+        `).bind(groupId, newName, Date.now()).run();
+
+        return new Response(
+          JSON.stringify({ success: true, groupId, newName }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al renombrar equipo.",
+          }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
+    }
+
+    // =========================================================================
     // 7B. LISTA DE TORNEOS DISPONIBLES & ELECCIÓN DE LOS GRUPOS
     // =========================================================================
     if (url.pathname === "/api/paper/tournaments" && request.method === "GET") {
