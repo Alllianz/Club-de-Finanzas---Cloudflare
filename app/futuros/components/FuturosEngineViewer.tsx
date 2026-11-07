@@ -103,24 +103,15 @@ function FuturosEngineViewerInner() {
               </button>
             </>
           ) : (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickLogin("allianz", "LuciaSape")}
-                disabled={isActionLoading}
-                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#b89047] to-[#d4af37] px-6 py-3.5 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-md transition hover:brightness-110 active:scale-[0.99] disabled:opacity-50"
-              >
-                <span>👑 Ingresar como Allianz</span>
-                <span>→</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleOpenClick}
-                className="rounded-xl border border-white/20 bg-white/10 px-5 py-3.5 text-xs font-bold uppercase tracking-[0.1em] text-white transition hover:bg-white/20"
-              >
-                Ingresar Grupo
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleOpenClick}
+              disabled={isActionLoading}
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#b89047] to-[#d4af37] px-7 py-3.5 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-md transition hover:brightness-110 active:scale-[0.99] disabled:opacity-50"
+            >
+              <span>Ingresar</span>
+              <span>→</span>
+            </button>
           )}
         </div>
       </div>
@@ -141,7 +132,7 @@ function FuturosEngineViewerInner() {
             <div className="flex items-center gap-2">
               <span className="h-[2px] w-4 bg-[#b89047]" />
               <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#0062ff]">
-                Acceso Exclusivo de Grupo
+                Acceso al Terminal de Derivados
               </span>
             </div>
 
@@ -149,33 +140,41 @@ function FuturosEngineViewerInner() {
               Paper Trading en Futuros & Derivados
             </h3>
             <p className="mt-1 text-xs text-[#64748b]">
-              Ingrese las credenciales oficiales de su grupo para acceder a la mesa de operaciones de derivados.
+              Ingresá con tu usuario y contraseña (Allianz o Grupo) para acceder a la mesa de operaciones de derivados.
             </p>
 
             {/* Accesos directos rápidos */}
             <div className="mt-4 flex flex-wrap items-center gap-1.5 rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-2.5">
               <span className="w-full text-[10px] font-bold uppercase tracking-wider text-[#64748b]">
-                Acceso rápido:
+                Completar rápido:
               </span>
               <button
                 type="button"
-                onClick={() => handleQuickLogin("allianz", "LuciaSape")}
+                onClick={() => {
+                  setUsername("Allianz");
+                  setPassword("LuciaSape");
+                  setErrorMsg("");
+                }}
                 className="rounded-md bg-[#b89047] px-2.5 py-1 text-[10px] font-bold text-white transition hover:bg-[#a67c33]"
               >
                 👑 Allianz
               </button>
               {[
-                { name: "G1", pass: "Bitcoin" },
-                { name: "G2", pass: "Ethereum" },
-                { name: "G3", pass: "GGAL" },
-                { name: "G4", pass: "YPF" },
-                { name: "G5", pass: "AAPL" },
-                { name: "G6", pass: "GOOG" },
-              ].map((g, idx) => (
+                { name: "G1", user: "Grupo 1", pass: "Bitcoin" },
+                { name: "G2", user: "Grupo 2", pass: "Ethereum" },
+                { name: "G3", user: "Grupo 3", pass: "GGAL" },
+                { name: "G4", user: "Grupo 4", pass: "YPF" },
+                { name: "G5", user: "Grupo 5", pass: "AAPL" },
+                { name: "G6", user: "Grupo 6", pass: "GOOG" },
+              ].map((g) => (
                 <button
                   key={g.name}
                   type="button"
-                  onClick={() => handleQuickLogin(`Grupo ${idx + 1}`, g.pass)}
+                  onClick={() => {
+                    setUsername(g.user);
+                    setPassword(g.pass);
+                    setErrorMsg("");
+                  }}
                   className="rounded-md border border-[#cbd5e1] bg-white px-2 py-1 text-[10px] font-medium text-[#0b1727] transition hover:bg-[#f1f5f9]"
                 >
                   {g.name}
@@ -186,13 +185,13 @@ function FuturosEngineViewerInner() {
             <form onSubmit={handleLoginSubmit} className="mt-5 space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-[#475569]">
-                  Usuario de Grupo
+                  Usuario
                 </label>
                 <input
                   type="text"
                   required
                   autoFocus
-                  placeholder="Ej: Grupo 1 o Allianz"
+                  placeholder="Ej: Allianz o Grupo 1"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="mt-1.5 w-full rounded-xl border border-[#cbd5e1] bg-[#f8fafc] px-4 py-2.5 text-sm text-[#0b1727] outline-none transition focus:border-[#0062ff] focus:bg-white"
@@ -225,13 +224,13 @@ function FuturosEngineViewerInner() {
                   disabled={isActionLoading}
                   className="w-full rounded-xl bg-[#0b1727] py-3 text-xs font-bold uppercase tracking-[0.12em] text-white shadow-md transition hover:bg-[#1e3a8a] disabled:opacity-50"
                 >
-                  {isActionLoading ? "Verificando..." : "Acceder al Terminal"}
+                  {isActionLoading ? "Verificando..." : "Ingresar"}
                 </button>
               </div>
 
               <div className="border-t border-[#f1f5f9] pt-3 text-center">
                 <p className="text-[11px] text-[#94a3b8]">
-                  Grupos autorizados: Grupo 1 al 6 · Allianz · Capital de torneo: $10,000 USD
+                  Usuarios autorizados: Allianz · Grupo 1 al 6 · Capital de torneo: $10,000 USD
                 </p>
               </div>
             </form>

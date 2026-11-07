@@ -61,12 +61,12 @@ export function normalizeGroupId(input: string): string | null {
   if (!input) return null;
   const clean = input.toLowerCase().replace(/[\s\-_]/g, "");
   
-  if (clean === "grupo1" || clean === "1") return "grupo_1";
-  if (clean === "grupo2" || clean === "2") return "grupo_2";
-  if (clean === "grupo3" || clean === "3") return "grupo_3";
-  if (clean === "grupo4" || clean === "4") return "grupo_4";
-  if (clean === "grupo5" || clean === "5") return "grupo_5";
-  if (clean === "grupo6" || clean === "6") return "grupo_6";
+  if (clean === "grupo1" || clean === "1" || clean === "g1") return "grupo_1";
+  if (clean === "grupo2" || clean === "2" || clean === "g2") return "grupo_2";
+  if (clean === "grupo3" || clean === "3" || clean === "g3") return "grupo_3";
+  if (clean === "grupo4" || clean === "4" || clean === "g4") return "grupo_4";
+  if (clean === "grupo5" || clean === "5" || clean === "g5") return "grupo_5";
+  if (clean === "grupo6" || clean === "6" || clean === "g6") return "grupo_6";
   if (clean === "allianz") return "allianz";
   
   return null;

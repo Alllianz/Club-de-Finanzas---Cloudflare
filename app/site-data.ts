@@ -49,8 +49,8 @@ export const contactLinks = [
   },
   {
     label: "Mail",
-    value: "hola@clubdefinanzasuba.com",
-    href: "mailto:hola@clubdefinanzasuba.com",
+    value: "Clubfinanzasuba@gmail.com",
+    href: "mailto:Clubfinanzasuba@gmail.com",
   },
 ];
 
