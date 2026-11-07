@@ -4,7 +4,6 @@ export interface GroupDefinition {
   id: string;
   name: string;
   assignedAsset: string;
-  defaultPasswordHint: string;
 }
 
 export const CLUB_GROUPS: GroupDefinition[] = [
@@ -12,43 +11,36 @@ export const CLUB_GROUPS: GroupDefinition[] = [
     id: "grupo_1",
     name: "Grupo 1",
     assignedAsset: "BTC-USD",
-    defaultPasswordHint: "Bitcoin",
   },
   {
     id: "grupo_2",
     name: "Grupo 2",
     assignedAsset: "ETH-USD",
-    defaultPasswordHint: "Ethereum",
   },
   {
     id: "grupo_3",
     name: "Grupo 3",
     assignedAsset: "GGAL",
-    defaultPasswordHint: "GGAL",
   },
   {
     id: "grupo_4",
     name: "Grupo 4",
     assignedAsset: "YPF",
-    defaultPasswordHint: "YPF",
   },
   {
     id: "grupo_5",
     name: "Grupo 5",
     assignedAsset: "AAPL",
-    defaultPasswordHint: "AAPL",
   },
   {
     id: "grupo_6",
     name: "Grupo 6",
     assignedAsset: "GOOG",
-    defaultPasswordHint: "GOOG",
   },
   {
     id: "allianz",
     name: "Allianz",
     assignedAsset: "SPY",
-    defaultPasswordHint: "Allianz",
   },
 ];
 

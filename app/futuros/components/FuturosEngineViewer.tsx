@@ -25,18 +25,6 @@ function FuturosEngineViewerInner() {
     }
   };
 
-  const handleQuickLogin = async (user: string, pass: string) => {
-    setErrorMsg("");
-    const res = await login(user, pass);
-    if (res.success) {
-      setShowLoginModal(false);
-      setIsOpen(true);
-    } else {
-      setErrorMsg(res.error || "No se pudo iniciar sesión.");
-      setShowLoginModal(true);
-    }
-  };
-
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
@@ -143,16 +131,16 @@ function FuturosEngineViewerInner() {
               Ingresá con tu usuario y contraseña (Allianz o Grupo) para acceder a la mesa de operaciones de derivados.
             </p>
 
-            {/* Accesos directos rápidos */}
+            {/* Selección rápida de usuario (requiere ingresar contraseña manualmente) */}
             <div className="mt-4 flex flex-wrap items-center gap-1.5 rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-2.5">
               <span className="w-full text-[10px] font-bold uppercase tracking-wider text-[#64748b]">
-                Completar rápido:
+                Seleccionar usuario:
               </span>
               <button
                 type="button"
                 onClick={() => {
                   setUsername("Allianz");
-                  setPassword("LuciaSape");
+                  setPassword("");
                   setErrorMsg("");
                 }}
                 className="rounded-md bg-[#b89047] px-2.5 py-1 text-[10px] font-bold text-white transition hover:bg-[#a67c33]"
@@ -160,22 +148,22 @@ function FuturosEngineViewerInner() {
                 👑 Allianz
               </button>
               {[
-                { name: "G1", user: "Grupo 1", pass: "Bitcoin" },
-                { name: "G2", user: "Grupo 2", pass: "Ethereum" },
-                { name: "G3", user: "Grupo 3", pass: "GGAL" },
-                { name: "G4", user: "Grupo 4", pass: "YPF" },
-                { name: "G5", user: "Grupo 5", pass: "AAPL" },
-                { name: "G6", user: "Grupo 6", pass: "GOOG" },
+                { name: "G1", user: "Grupo 1" },
+                { name: "G2", user: "Grupo 2" },
+                { name: "G3", user: "Grupo 3" },
+                { name: "G4", user: "Grupo 4" },
+                { name: "G5", user: "Grupo 5" },
+                { name: "G6", user: "Grupo 6" },
               ].map((g) => (
                 <button
                   key={g.name}
                   type="button"
                   onClick={() => {
                     setUsername(g.user);
-                    setPassword(g.pass);
+                    setPassword("");
                     setErrorMsg("");
                   }}
-                  className="rounded-md border border-[#cbd5e1] bg-white px-2 py-1 text-[10px] font-medium text-[#0b1727] transition hover:bg-[#f1f5f9]"
+                  className="rounded-md border border-[#cbd5e1] bg-white px-2 py-1 text-[10px] font-mono font-bold text-[#475569] transition hover:bg-[#0062ff] hover:text-white hover:border-[#0062ff]"
                 >
                   {g.name}
                 </button>
@@ -205,6 +193,7 @@ function FuturosEngineViewerInner() {
                 <input
                   type="password"
                   required
+                  autoComplete="new-password"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

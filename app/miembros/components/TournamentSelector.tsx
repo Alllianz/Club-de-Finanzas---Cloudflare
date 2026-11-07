@@ -21,7 +21,6 @@ export const TournamentSelector: React.FC = () => {
     marketType,
     saveTournamentConfig,
     refreshTournament,
-    login,
   } = useGroupTrading();
 
   const [editingTournament, setEditingTournament] = useState<TournamentSettings | null>(null);
@@ -135,7 +134,7 @@ export const TournamentSelector: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          {currentGroup?.id === "allianz" ? (
+          {currentGroup?.id === "allianz" && (
             <button
               type="button"
               onClick={() => {
@@ -147,20 +146,6 @@ export const TournamentSelector: React.FC = () => {
               className="inline-flex items-center gap-2 rounded-xl bg-[#b89047] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-white shadow-md transition hover:bg-[#a67c33] active:scale-[0.99]"
             >
               <span>📅 Configurar Fechas del Torneo</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={async () => {
-                await login("allianz", "LuciaSape");
-                const target =
-                  availableTournaments.find((t) => t.id === selectedTournamentId) ||
-                  availableTournaments[0];
-                if (target) openDateEditor(target);
-              }}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#b89047] bg-[#b89047]/10 px-3.5 py-2 text-xs font-bold text-[#8c6729] hover:bg-[#b89047] hover:text-white transition shadow-2xs"
-            >
-              <span>👑 Acceso Allianz: Configurar Fechas</span>
             </button>
           )}
         </div>
@@ -297,24 +282,13 @@ export const TournamentSelector: React.FC = () => {
                   </button>
                 )}
 
-                {currentGroup?.id === "allianz" ? (
+                {currentGroup?.id === "allianz" && (
                   <button
                     type="button"
                     onClick={() => openDateEditor(t)}
                     className="mt-2 w-full flex items-center justify-center gap-1.5 rounded-lg border border-[#b89047] bg-[#b89047]/10 py-1.5 text-xs font-bold text-[#8c6729] hover:bg-[#b89047] hover:text-white transition shadow-2xs"
                   >
                     <span>📅 Configurar Fechas (Inicio / Fin)</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      await login("allianz", "LuciaSape");
-                      openDateEditor(t);
-                    }}
-                    className="mt-2 w-full flex items-center justify-center gap-1.5 rounded-lg border border-[#cbd5e1] bg-white py-1.5 text-[11px] font-bold text-[#64748b] hover:border-[#b89047] hover:text-[#b89047] transition"
-                  >
-                    <span>👑 Configurar Fechas (Allianz)</span>
                   </button>
                 )}
               </div>
