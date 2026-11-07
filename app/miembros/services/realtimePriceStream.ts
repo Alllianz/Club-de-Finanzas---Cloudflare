@@ -17,6 +17,7 @@ class RealtimePriceStreamService {
   private listeners: Map<string, Set<PriceListener>> = new Map();
   private subscribedStreams: Set<string> = new Set();
   private reconnectTimer: any = null;
+  private broadcastIntervalTimer: any = null;
   private isConnecting: boolean = false;
   private latestTicks: Map<string, RealtimePriceTick> = new Map();
 
@@ -46,6 +47,28 @@ class RealtimePriceStreamService {
   constructor() {
     // Inicializar streams por defecto
     Object.values(this.symbolToStreamMap).forEach((st) => this.subscribedStreams.add(st));
+    this.startBroadcastInterval();
+  }
+
+  /**
+   * Ciclo de despacho cada 10 segundos: envía a todos los escuchas el precio más reciente actualizado
+   */
+  private startBroadcastInterval() {
+    if (typeof window === "undefined") return;
+    if (this.broadcastIntervalTimer) return;
+
+    this.broadcastIntervalTimer = setInterval(() => {
+      this.dispatchLatestTicks();
+    }, 10000); // 10 segundos exactos requeridos por Allianz
+  }
+
+  private dispatchLatestTicks() {
+    this.listeners.forEach((_, symbol) => {
+      const latest = this.latestTicks.get(symbol);
+      if (latest) {
+        this.notifyListeners(symbol, latest);
+      }
+    });
   }
 
   /**
@@ -89,12 +112,12 @@ class RealtimePriceStreamService {
                 timestampMs: Date.now(),
               };
 
+              // Se guarda siempre la cotización más reciente recibida de Binance
               this.latestTicks.set(normalizedSymbol, tick);
-              this.notifyListeners(normalizedSymbol, tick);
-              // También notificar el ticker raw (ej. BTCUSDT)
               if (normalizedSymbol !== rawPair) {
-                this.notifyListeners(rawPair, tick);
+                this.latestTicks.set(rawPair, tick);
               }
+              // El despacho a los escuchas se realiza cada 10 segundos vía broadcastIntervalTimer
             }
           }
         } catch {

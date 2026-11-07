@@ -95,8 +95,8 @@ export const MarketTickerBar: React.FC<{
       unsubscribers.push(unsub);
     });
 
-    // 3. Intervalo de actualización para acciones (aprovecha la caché Edge del Worker)
-    const interval = setInterval(loadTickerQuotes, 8000);
+    // 3. Intervalo de actualización para acciones (aprovecha la caché Edge del Worker a 10s)
+    const interval = setInterval(loadTickerQuotes, 10000);
 
     return () => {
       isMounted = false;

@@ -38,7 +38,9 @@ export async function loginGroup(
 }
 
 export async function fetchQuote(symbol: string): Promise<LiveMarketQuote> {
-  const res = await fetch(`${API_BASE}/api/paper/market/quote/${encodeURIComponent(symbol)}`);
+  const res = await fetch(`${API_BASE}/api/paper/market/quote/${encodeURIComponent(symbol)}?_t=${Date.now()}`, {
+    cache: "no-store",
+  });
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || `No se pudo obtener cotización para ${symbol}`);

@@ -114,10 +114,11 @@ interface QuoteCacheEntry {
 }
 
 const quoteCache = new Map<string, QuoteCacheEntry>();
-const CACHE_TTL_MS = 3000; // 3 segundos de caché en memoria Edge para evitar rate-limit
+const CACHE_TTL_MS = 10000; // 10 segundos de ciclo exacto de actualización para Binance y Yahoo Finance
 
 /**
  * Consulta de ultra-baja latencia para Criptomonedas vía Binance API
+ * Garantiza la toma del precio más reciente con bypass de caché intermedia
  */
 async function fetchBinanceCryptoQuote(symbol: string): Promise<MarketQuote | null> {
   try {
@@ -126,10 +127,13 @@ async function fetchBinanceCryptoQuote(symbol: string): Promise<MarketQuote | nu
     if (pair === "ETH") pair = "ETHUSDT";
     if (pair === "SOL") pair = "SOLUSDT";
 
-    const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`, {
+    const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}&_t=${Date.now()}`;
+    const res = await fetch(url, {
+      cache: "no-store",
       headers: {
         Accept: "application/json",
         "User-Agent": "AegisQuantEngine/2.0",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
       },
     });
 
@@ -148,7 +152,7 @@ async function fetchBinanceCryptoQuote(symbol: string): Promise<MarketQuote | nu
       change_24h_pct: isNaN(changePct) ? 0 : changePct,
       previous_close: isNaN(prevClose) ? price : prevClose,
       is_market_open: true,
-      status_message: "Mercado Crypto 24/7 Abierto (Binance Spot Stream)",
+      status_message: "Mercado Crypto 24/7 Abierto (Binance Spot Feed - Ciclo 10s)",
       timestamp_ms: Date.now(),
     };
   } catch {
@@ -231,14 +235,17 @@ export async function fetchLiveMarketQuote(rawSymbol: string): Promise<MarketQuo
   }
 
   // 3. Consulta a Yahoo Finance para Acciones (Wall Street) o Fallback
+  // Se añade bypass de caché e intervalo de 10 segundos para garantizar el precio más reciente
   const marketStatus = getMarketHoursStatus(assetType);
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d&_t=${Date.now()}`;
   
   const res = await fetch(url, {
+    cache: "no-store",
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
       Accept: "application/json",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
     },
   });
 
@@ -253,7 +260,20 @@ export async function fetchLiveMarketQuote(rawSymbol: string): Promise<MarketQuo
   }
 
   const meta = result.meta;
-  const price = meta.regularMarketPrice ?? meta.previousClose ?? meta.chartPreviousClose;
+  // Obtener el precio más reciente actualizado:
+  // 1. regularMarketPrice en tiempo real
+  // 2. Último valor en los indicadores de cierre intradía
+  // 3. previousClose o chartPreviousClose como salvaguarda
+  const candlesClose = result.indicators?.quote?.[0]?.close;
+  let latestCandleClose: number | undefined = undefined;
+  if (Array.isArray(candlesClose) && candlesClose.length > 0) {
+    const validCloses = candlesClose.filter((c: any) => typeof c === "number" && !isNaN(c));
+    if (validCloses.length > 0) {
+      latestCandleClose = validCloses[validCloses.length - 1];
+    }
+  }
+
+  const price = meta.regularMarketPrice ?? latestCandleClose ?? meta.previousClose ?? meta.chartPreviousClose;
   if (price === undefined || price === null || isNaN(price)) {
     throw new Error(`Precio no disponible para '${symbol}'`);
   }
@@ -269,10 +289,10 @@ export async function fetchLiveMarketQuote(rawSymbol: string): Promise<MarketQuo
     previous_close: Number(prevClose),
     is_market_open: marketStatus.isOpen,
     status_message: marketStatus.message,
-    timestamp_ms: Date.now(),
+    timestamp_ms: meta.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now(),
   };
 
-  // Guardar en caché Edge
+  // Guardar en caché Edge con vigencia de 10 segundos
   quoteCache.set(symbol, {
     quote,
     expiresAt: now + CACHE_TTL_MS,

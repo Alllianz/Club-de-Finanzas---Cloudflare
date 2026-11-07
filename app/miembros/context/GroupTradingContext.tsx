@@ -209,11 +209,11 @@ export const GroupTradingProvider: React.FC<{
     }
   }, [currentGroup, selectedTournamentId, tournament?.id]);
 
-  // Actualización periódica en segundo plano cada 6 segundos
+  // Actualización periódica en segundo plano cada 10 segundos
   useEffect(() => {
     if (currentGroup) {
       refreshTradingData();
-      const interval = setInterval(refreshTradingData, 6000);
+      const interval = setInterval(refreshTradingData, 10000);
       return () => clearInterval(interval);
     }
   }, [currentGroup, refreshTradingData]);

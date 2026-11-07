@@ -40,7 +40,7 @@ export const FuturosMarketBar: React.FC<FuturosMarketBarProps> = ({
     };
 
     loadQuotes();
-    const interval = setInterval(loadQuotes, 6000);
+    const interval = setInterval(loadQuotes, 10000); // Actualización de cotizaciones cada 10 segundos
     return () => {
       isMounted = false;
       clearInterval(interval);

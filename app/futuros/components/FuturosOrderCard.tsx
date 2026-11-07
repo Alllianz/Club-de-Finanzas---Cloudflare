@@ -39,7 +39,7 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
     };
 
     loadQuote();
-    const interval = setInterval(loadQuote, 5000);
+    const interval = setInterval(loadQuote, 10000); // Consulta sincronizada a 10 segundos
     return () => {
       isMounted = false;
       clearInterval(interval);

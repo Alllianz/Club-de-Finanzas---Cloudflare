@@ -104,10 +104,10 @@ export function useLiveQuote(rawSymbol: string): UseLiveQuoteReturn {
       });
     } else {
       setIsLiveStreaming(false);
-      // Para acciones tradicionales, sondeo acelerado a la caché edge (cada 3.5 segundos)
+      // Para acciones tradicionales (Yahoo Finance), sondeo sincronizado a 10 segundos
       const interval = setInterval(() => {
         loadInitialQuote();
-      }, 3500);
+      }, 10000);
 
       return () => {
         clearInterval(interval);
