@@ -1,6 +1,7 @@
 import {
   ClubResources,
   ClubStats,
+  FeaturedAreaCarousel,
   FeaturedCard,
   HomeHero,
   PurposePillars,
@@ -15,20 +16,23 @@ export default async function HomePage() {
   const { featured, feed } = await getHomeContent();
 
   return (
-    <div className="min-h-screen bg-[#ffffff] font-sans text-[#334155]">
-      {/* 1. Header con Topline y Navegación Institucional */}
+    <div className="min-h-screen bg-[#ffffff] font-sans text-[#334155] overflow-x-hidden">
+      {/* 1. Header con Topline, Target Invisible de Gestión y Navegación Institucional */}
       <SiteHeader currentPath="/" />
 
       <main>
         {/* 2. Hero con Formato Split 2 Columnas (Copy + Visual Showcase) */}
         <HomeHero />
 
-        {/* 3. Métricas y Alcance Institucional (El Club en Números) */}
+        {/* 3. Slider/Carrusel Institucional con las Publicaciones de las 3 Áreas (Portafolio, Research, Futuros) */}
+        <FeaturedAreaCarousel />
+
+        {/* 4. Métricas y Alcance Institucional (El Club en Números - 100% Editable desde Gestión) */}
         <ClubStats />
 
-        {/* 4. Novedades / Publicación Destacada Principal (Formato .featured horizontal) */}
-        <section className="py-16 md:py-20">
-          <div className="mx-auto w-[min(1320px,92vw)]">
+        {/* 5. Novedades / Publicación Destacada Principal (Formato .featured horizontal) */}
+        <section className="py-14 md:py-18 overflow-hidden">
+          <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mb-8 flex items-end justify-between">
               <div>
                 <div className="flex items-center gap-2">

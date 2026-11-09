@@ -29,6 +29,7 @@ import { ejecutarOptimizacionCartera } from "./portfolio-quant/markowitz-optimiz
 import { ejecutarIsOos } from "./portfolio-quant/is-oos-engine";
 import { ejecutarTracking } from "./portfolio-quant/tracking-engine";
 import { ejecutarNeuralAllocation } from "./portfolio-quant/neural-engine";
+import { handleCmsRoutes } from "./cms-handlers";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1137,6 +1138,14 @@ export default {
           headers: corsHeaders,
         });
       }
+    }
+
+    // =========================================================================
+    // 8B. ENRUTADOR CMS & CONTENIDO DINÁMICO (D1 SQLite Serverless)
+    // =========================================================================
+    const cmsResponse = await handleCmsRoutes(request, env, url, corsHeaders);
+    if (cmsResponse) {
+      return cmsResponse;
     }
 
     // =========================================================================

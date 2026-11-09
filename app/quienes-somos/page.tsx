@@ -1,4 +1,5 @@
 import {
+  AreaPresidentsTimeline,
   PageHero,
   PeopleGrid,
   SectionLabel,
@@ -21,7 +22,7 @@ export default async function QuienesSomosPage() {
         description="Organización estudiantil y académica de la Facultad de Ciencias Económicas de la Universidad de Buenos Aires. Desarrollamos investigación cuantitativa, análisis de inversiones y formación técnica de primer nivel."
       />
 
-      <main className="mx-auto w-[min(1280px,92vw)] space-y-16 py-12 md:space-y-20 md:py-16">
+      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 space-y-16 py-12 md:space-y-20 md:py-16">
         {/* Pilares Institucionales */}
         <section className="space-y-6">
           <SectionLabel
@@ -194,6 +195,17 @@ export default async function QuienesSomosPage() {
               </section>
             ))}
           </div>
+        </section>
+
+        {/* Línea de Tiempo de Presidentes por Área */}
+        <section className="pt-6 border-t border-[#e2e8f0]">
+          <AreaPresidentsTimeline
+            initialArea="PORTFOLIO"
+            showTabs={true}
+            title="Línea de Tiempo de Presidentes por Área"
+            eyebrow="Historia & Mandatos"
+            description="Trazabilidad histórica y directores actuales de Portafolio, Futuros y Research desde los orígenes del Club."
+          />
         </section>
       </main>
 

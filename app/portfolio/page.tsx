@@ -1,4 +1,5 @@
 import {
+  AreaPresidentsTimeline,
   FeaturedStory,
   FeedGrid,
   PageHero,
@@ -45,7 +46,7 @@ export default async function PortfolioPage() {
         description="Construcción cuantitativa de carteras multiactivo, optimización de media-varianza de Markowitz, asset allocation estratégico y gestión integral del riesgo financiero."
       />
 
-      <main className="mx-auto w-[min(1380px,94vw)] space-y-16 py-10 md:space-y-20 md:py-14">
+      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 space-y-16 py-12 md:space-y-20 md:py-16">
         {/* Pilares Metodológicos de Portfolio */}
         <section className="space-y-6">
           <SectionLabel
@@ -90,6 +91,17 @@ export default async function PortfolioPage() {
             description="Estrategias de inversión, seguimiento de carteras modelo y notas metodológicas de asignación de activos."
           />
           <FeedGrid items={feed} />
+        </section>
+
+        {/* Línea de Tiempo de Presidentes de Portafolio */}
+        <section className="pt-6 border-t border-[#e2e8f0]">
+          <AreaPresidentsTimeline
+            initialArea="PORTFOLIO"
+            showTabs={false}
+            title="Presidentes y Liderazgo de Portafolio"
+            eyebrow="Historia & Mandatos"
+            description="Evolución y directores al frente de la asignación cuantitativa y carteras modelo del Club."
+          />
         </section>
 
         {/* En el fondo, abajo del todo: Motor Cuantitativo Oficial con botón Abrir y credenciales */}

@@ -148,6 +148,50 @@ export default function AdminPage() {
             </Link>
           </div>
         </article>
+
+        {/* Línea de Tiempo de Presidentes */}
+        <article className="flex flex-col justify-between rounded-2xl border border-[#e2e8f0] bg-[#ffffff] p-6 shadow-sm">
+          <div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#b89047] text-lg text-white">
+              🏛️
+            </div>
+            <h2 className="mt-4 font-serif text-xl font-bold text-[#0e2246]">Presidentes & Mandatos</h2>
+            <p className="mt-2 text-xs leading-relaxed text-[#64748b]">
+              Línea de tiempo cronológica de directores y presidentes de Portafolio, Futuros y Research.
+            </p>
+          </div>
+          <div className="mt-6 pt-4 border-t border-[#f1f5f9]">
+            <Link
+              href="/admin/presidents"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[#091a36] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white transition hover:bg-[#b89047]"
+            >
+              <span>Gestionar Presidentes</span>
+              <span>→</span>
+            </Link>
+          </div>
+        </article>
+
+        {/* Contenido Web & Footer */}
+        <article className="flex flex-col justify-between rounded-2xl border border-[#e2e8f0] bg-[#ffffff] p-6 shadow-sm">
+          <div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0e2246] text-lg text-white">
+              ⚙️
+            </div>
+            <h2 className="mt-4 font-serif text-xl font-bold text-[#0e2246]">Contenido Institucional & Footer</h2>
+            <p className="mt-2 text-xs leading-relaxed text-[#64748b]">
+              Editor del Club en Números, logos con texto inferior, canales oficiales y textos institucionales del footer.
+            </p>
+          </div>
+          <div className="mt-6 pt-4 border-t border-[#f1f5f9]">
+            <Link
+              href="/admin/site-content"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[#091a36] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white transition hover:bg-[#0062ff]"
+            >
+              <span>Editar Contenido Web</span>
+              <span>→</span>
+            </Link>
+          </div>
+        </article>
       </div>
 
       {/* Guía y recomendaciones operativas */}

@@ -6,6 +6,7 @@ import { API_BASE_URL } from "../../lib/config";
 import type { ContactLink } from "../../lib/types";
 
 const kinds = ["LINKEDIN", "INSTAGRAM", "X", "EMAIL", "WHATSAPP", "YOUTUBE", "LOCATION", "OTHER"];
+const AUTH_HEADER = { Authorization: "Bearer admin_allianz_session_token_2026" };
 
 export default function AdminLinksPage() {
   const [items, setItems] = useState<ContactLink[]>([]);
@@ -15,7 +16,10 @@ export default function AdminLinksPage() {
   const [draft, setDraft] = useState({ kind: "OTHER", label: "", value: "", href: "", sortOrder: 0, isActive: true });
 
   async function load() {
-    const response = await fetch(`${API_BASE_URL}/admin/v2/contact-links`, { credentials: "include" });
+    const response = await fetch(`${API_BASE_URL}/admin/v2/contact-links`, {
+      credentials: "include",
+      headers: AUTH_HEADER,
+    });
     const payload = await response.json();
     setItems(payload.items ?? []);
   }
@@ -27,7 +31,7 @@ export default function AdminLinksPage() {
       const response = await fetch(`${API_BASE_URL}/admin/v2/contact-links`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...AUTH_HEADER },
         body: JSON.stringify(form),
       });
       if (!response.ok) throw new Error();
@@ -41,7 +45,11 @@ export default function AdminLinksPage() {
 
   async function remove(id: string) {
     if (!confirm("¿Eliminar este link?")) return;
-    await fetch(`${API_BASE_URL}/admin/v2/contact-links/${id}`, { method: "DELETE", credentials: "include" });
+    await fetch(`${API_BASE_URL}/admin/v2/contact-links/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+      headers: AUTH_HEADER,
+    });
     await load();
   }
 
@@ -67,7 +75,7 @@ export default function AdminLinksPage() {
       const response = await fetch(`${API_BASE_URL}/admin/v2/contact-links/${editingId}`, {
         method: "PATCH",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...AUTH_HEADER },
         body: JSON.stringify(draft),
       });
       if (!response.ok) throw new Error();

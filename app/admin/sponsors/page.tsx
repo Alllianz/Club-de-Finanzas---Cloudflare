@@ -1,35 +1,106 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { BackofficeShell } from "../../components/backoffice-shell";
 import { API_BASE_URL } from "../../lib/config";
 import type { Sponsor } from "../../lib/types";
 
+const AUTH_HEADER = { Authorization: "Bearer admin_allianz_session_token_2026" };
+
 export default function AdminSponsorsPage() {
   const [items, setItems] = useState<Sponsor[]>([]);
   const [notice, setNotice] = useState("");
-  const [form, setForm] = useState({ name: "", logoUrl: "", linkUrl: "", sortOrder: 0, isActive: true });
+  const [uploading, setUploading] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    logoUrl: "",
+    description: "",
+    linkUrl: "",
+    sortOrder: 0,
+    isActive: true,
+  });
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ name: "", logoUrl: "", linkUrl: "", sortOrder: 0, isActive: true });
+  const [draft, setDraft] = useState({
+    name: "",
+    logoUrl: "",
+    description: "",
+    linkUrl: "",
+    sortOrder: 0,
+    isActive: true,
+  });
 
   async function load() {
-    const response = await fetch(`${API_BASE_URL}/admin/v2/sponsors`, { credentials: "include" });
-    const payload = await response.json();
-    setItems(payload.items ?? []);
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/v2/sponsors`, {
+        credentials: "include",
+        headers: AUTH_HEADER,
+      });
+      const payload = await response.json();
+      setItems(payload.items ?? []);
+    } catch {
+      setNotice("No se pudieron cargar sponsors.");
+    }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function uploadLogo(file: File, isDraft = false) {
+    setUploading(true);
+    setNotice("");
+    try {
+      const data = new FormData();
+      data.append("file", file);
+      data.append("kind", "image");
+      const res = await fetch(`${API_BASE_URL}/admin/v2/uploads`, {
+        method: "POST",
+        credentials: "include",
+        headers: AUTH_HEADER,
+        body: data,
+      });
+      if (!res.ok) throw new Error();
+      const payload = await res.json();
+      if (payload.asset?.url) {
+        if (isDraft) {
+          setDraft((prev) => ({ ...prev, logoUrl: payload.asset.url }));
+        } else {
+          setForm((prev) => ({ ...prev, logoUrl: payload.asset.url }));
+        }
+        setNotice("Logo subido correctamente.");
+      }
+    } catch {
+      setNotice("Error al subir el logo.");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function create() {
+    if (!form.name.trim()) {
+      setNotice("Ingresa el nombre del sponsor.");
+      return;
+    }
     try {
       const response = await fetch(`${API_BASE_URL}/admin/v2/sponsors`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...AUTH_HEADER,
+        },
         body: JSON.stringify(form),
       });
       if (!response.ok) throw new Error();
-      setForm({ name: "", logoUrl: "", linkUrl: "", sortOrder: 0, isActive: true });
+      setForm({
+        name: "",
+        logoUrl: "",
+        description: "",
+        linkUrl: "",
+        sortOrder: 0,
+        isActive: true,
+      });
       await load();
       setNotice("Sponsor creado con éxito.");
     } catch {
@@ -39,7 +110,11 @@ export default function AdminSponsorsPage() {
 
   async function remove(id: string) {
     if (!confirm("¿Eliminar este sponsor?")) return;
-    await fetch(`${API_BASE_URL}/admin/v2/sponsors/${id}`, { method: "DELETE", credentials: "include" });
+    await fetch(`${API_BASE_URL}/admin/v2/sponsors/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+      headers: AUTH_HEADER,
+    });
     await load();
   }
 
@@ -48,6 +123,7 @@ export default function AdminSponsorsPage() {
     setDraft({
       name: item.name,
       logoUrl: item.logoUrl ?? "",
+      description: item.description ?? "",
       linkUrl: item.linkUrl ?? "",
       sortOrder: item.sortOrder,
       isActive: item.isActive,
@@ -64,7 +140,10 @@ export default function AdminSponsorsPage() {
       const response = await fetch(`${API_BASE_URL}/admin/v2/sponsors/${editingId}`, {
         method: "PATCH",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...AUTH_HEADER,
+        },
         body: JSON.stringify(draft),
       });
       if (!response.ok) throw new Error();
@@ -77,33 +156,42 @@ export default function AdminSponsorsPage() {
   }
 
   return (
-    <BackofficeShell title="Sponsors y Aliados" subtitle="Gestión de organizaciones y entidades que respaldan al Club.">
+    <BackofficeShell
+      title="Sponsors y Aliados"
+      subtitle="Gestión de organizaciones y entidades aliadas. Cada recuadro soporta logo y breve texto descriptivo abajo."
+    >
       {/* Formulario */}
       <section className="space-y-6 rounded-2xl border border-[#e2e8f0] bg-[#ffffff] p-6 shadow-sm md:p-8">
         <h2 className="font-serif text-2xl font-bold text-[#0e2246]">Nuevo Sponsor</h2>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-1">
-            <label className="text-xs font-bold uppercase tracking-wider text-[#0e2246]">Nombre de la Institución</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-[#0e2246]">
+              Nombre de la Institución
+            </label>
             <input
               className="w-full rounded-xl border border-[#e2e8f0] bg-[#ffffff] px-4 py-2.5 text-sm text-[#0e2246] outline-none transition focus:border-[#0062ff] focus:ring-2 focus:ring-[#0062ff]/10"
-              placeholder="Ej. BYMA / Santander"
+              placeholder="Ej. Matba Rofex / BYMA"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold uppercase tracking-wider text-[#0e2246]">Logo URL (Opcional)</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-[#0e2246]">
+              Breve texto descriptivo abajo del logo
+            </label>
             <input
               className="w-full rounded-xl border border-[#e2e8f0] bg-[#ffffff] px-4 py-2.5 text-sm text-[#0e2246] outline-none transition focus:border-[#0062ff] focus:ring-2 focus:ring-[#0062ff]/10"
-              placeholder="https://..."
-              value={form.logoUrl}
-              onChange={(e) => setForm({ ...form, logoUrl: e.target.value })}
+              placeholder="Ej. Mercado de derivados y futuros de Argentina"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold uppercase tracking-wider text-[#0e2246]">Sitio Web (linkUrl)</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-[#0e2246]">
+              Sitio Web (URL)
+            </label>
             <input
               className="w-full rounded-xl border border-[#e2e8f0] bg-[#ffffff] px-4 py-2.5 text-sm text-[#0e2246] outline-none transition focus:border-[#0062ff] focus:ring-2 focus:ring-[#0062ff]/10"
               placeholder="https://..."
@@ -113,7 +201,9 @@ export default function AdminSponsorsPage() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold uppercase tracking-wider text-[#0e2246]">Orden de Visualización</label>
+            <label className="text-xs font-bold uppercase tracking-wider text-[#0e2246]">
+              Orden de Visualización
+            </label>
             <input
               type="number"
               className="w-full rounded-xl border border-[#e2e8f0] bg-[#ffffff] px-4 py-2.5 text-sm text-[#0e2246] outline-none transition focus:border-[#0062ff] focus:ring-2 focus:ring-[#0062ff]/10"
@@ -124,8 +214,40 @@ export default function AdminSponsorsPage() {
           </div>
         </div>
 
+        {/* Subida de Logo */}
+        <div className="rounded-xl border border-[#d8e5f8] bg-[#f0f6ff] p-4">
+          <label className="block text-xs font-extrabold uppercase tracking-wider text-[#091a36]">
+            Logotipo Institucional
+          </label>
+          <div className="mt-2 flex items-center gap-4">
+            {form.logoUrl ? (
+              <div className="relative h-12 w-28 overflow-hidden rounded border border-gray-300 bg-white p-1">
+                <Image
+                  src={form.logoUrl}
+                  alt="Logo"
+                  fill
+                  className="object-contain"
+                />
+              </div>
+            ) : null}
+            <input
+              type="file"
+              accept="image/*"
+              className="text-xs file:mr-3 file:rounded-full file:border-0 file:bg-[#091a36] file:px-4 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:bg-[#0062ff] cursor-pointer"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void uploadLogo(file, false);
+                e.currentTarget.value = "";
+              }}
+              disabled={uploading}
+            />
+            {uploading && <span className="text-xs text-[#0062ff] animate-pulse">Subiendo...</span>}
+          </div>
+        </div>
+
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={create}
             className="inline-flex items-center rounded-full bg-[#0062ff] px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-white shadow-sm transition hover:bg-[#091a36]"
           >
@@ -137,39 +259,73 @@ export default function AdminSponsorsPage() {
 
       {/* Listado */}
       <section className="mt-8 rounded-2xl border border-[#e2e8f0] bg-[#ffffff] p-6 shadow-sm md:p-8">
-        <h2 className="font-serif text-2xl font-bold text-[#0e2246]">Sponsors Registrados ({items.length})</h2>
+        <h2 className="font-serif text-2xl font-bold text-[#0e2246]">
+          Sponsors Registrados ({items.length})
+        </h2>
 
         <div className="mt-5 space-y-3">
           {items.map((item) => (
-            <article key={item.id} className="rounded-xl border border-[#e2e8f0] bg-[#ffffff] p-4 transition hover:border-[#0062ff]">
+            <article
+              key={item.id}
+              className="rounded-xl border border-[#e2e8f0] bg-[#ffffff] p-4 transition hover:border-[#0062ff]"
+            >
               {editingId === item.id ? (
                 <div className="space-y-3">
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-3 md:grid-cols-3">
                     <input
                       className="rounded-xl border border-[#e2e8f0] px-3 py-2 text-xs"
+                      placeholder="Nombre"
                       value={draft.name}
                       onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                     />
                     <input
                       className="rounded-xl border border-[#e2e8f0] px-3 py-2 text-xs"
+                      placeholder="Texto descriptivo abajo"
+                      value={draft.description}
+                      onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                    />
+                    <input
+                      className="rounded-xl border border-[#e2e8f0] px-3 py-2 text-xs"
+                      placeholder="Enlace URL"
                       value={draft.linkUrl}
                       onChange={(e) => setDraft({ ...draft, linkUrl: e.target.value })}
                     />
                   </div>
                   <div className="flex gap-2">
-                    <button className="rounded-full bg-[#0062ff] px-4 py-1.5 text-xs font-bold text-white" onClick={() => void saveEdit()}>
+                    <button
+                      className="rounded-full bg-[#0062ff] px-4 py-1.5 text-xs font-bold text-white"
+                      onClick={() => void saveEdit()}
+                    >
                       Guardar
                     </button>
-                    <button className="rounded-full border border-[#e2e8f0] px-4 py-1.5 text-xs font-bold text-[#64748b]" onClick={cancelEdit}>
+                    <button
+                      className="rounded-full border border-[#e2e8f0] px-4 py-1.5 text-xs font-bold text-[#64748b]"
+                      onClick={cancelEdit}
+                    >
                       Cancelar
                     </button>
                   </div>
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div>
-                    <h3 className="font-serif text-base font-bold text-[#0e2246]">{item.name}</h3>
-                    <p className="text-xs text-[#64748b]">{item.linkUrl ?? "Sin enlace web"}</p>
+                  <div className="flex items-center gap-4">
+                    {item.logoUrl ? (
+                      <div className="relative h-10 w-24 overflow-hidden rounded border border-gray-200 bg-white p-1">
+                        <Image
+                          src={item.logoUrl}
+                          alt={item.name}
+                          fill
+                          className="object-contain"
+                        />
+                      </div>
+                    ) : null}
+                    <div>
+                      <h3 className="font-serif text-base font-bold text-[#0e2246]">{item.name}</h3>
+                      {item.description ? (
+                        <p className="text-xs text-[#0062ff] font-medium">{item.description}</p>
+                      ) : null}
+                      <p className="text-xs text-[#64748b]">{item.linkUrl ?? "Sin enlace web"}</p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button

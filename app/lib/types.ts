@@ -202,6 +202,7 @@ export type Sponsor = {
   id: string;
   name: string;
   logoUrl: string | null;
+  description?: string | null;
   linkUrl: string | null;
   sortOrder: number;
   isActive: boolean;
@@ -225,4 +226,51 @@ export type ContactLink = {
   href: string;
   sortOrder: number;
   isActive: boolean;
+};
+
+
+export type AreaPresident = {
+  id: string;
+  area: "PORTFOLIO" | "FUTUROS" | "RESEARCH";
+  name: string;
+  roleTitle: string;
+  period: string;
+  startYear: number;
+  endYear: number | null;
+  photoUrl: string | null;
+  bio: string;
+  achievements: string[];
+  linkedinUrl: string | null;
+  isCurrent: boolean;
+  displayOrder: number;
+  createdAt?: string;
+};
+
+export type ClubStatSetting = {
+  id: string;
+  value: string;
+  label: string;
+  description: string;
+};
+
+export type SponsorTrustSetting = {
+  id: string;
+  name: string;
+  short?: string;
+  logoUrl?: string | null;
+  description?: string;
+  url: string;
+  sortOrder?: number;
+};
+
+export type FooterDisclaimerSetting = {
+  heading: string;
+  subtext: string;
+};
+
+export type SiteContentPayload = {
+  clubStats: ClubStatSetting[];
+  sponsorsTrust: SponsorTrustSetting[];
+  officialChannels: ContactLink[];
+  footerDisclaimer: FooterDisclaimerSetting;
 };

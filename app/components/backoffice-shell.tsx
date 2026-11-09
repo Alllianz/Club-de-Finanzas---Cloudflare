@@ -20,6 +20,8 @@ const navItems = [
   { href: "/admin/posts", label: "Publicaciones", roles: ["ADMIN", "EDITOR"] as Role[] },
   { href: "/admin/articles", label: "Artículos", roles: ["ADMIN", "EDITOR"] as Role[] },
   { href: "/admin/team", label: "Integrantes", roles: ["ADMIN", "EDITOR"] as Role[] },
+  { href: "/admin/presidents", label: "Presidentes", roles: ["ADMIN", "EDITOR"] as Role[] },
+  { href: "/admin/site-content", label: "Contenido Web", roles: ["ADMIN", "EDITOR"] as Role[] },
   { href: "/admin/links", label: "Links", roles: ["ADMIN", "EDITOR"] as Role[] },
   { href: "/admin/sponsors", label: "Sponsors", roles: ["ADMIN", "EDITOR"] as Role[] },
   { href: "/admin/resources", label: "Recursos", roles: ["ADMIN", "EDITOR"] as Role[] },

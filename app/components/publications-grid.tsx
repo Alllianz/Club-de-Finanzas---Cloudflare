@@ -16,8 +16,8 @@ export function PublicationsGrid({
   viewAllHref = "/research",
 }: PublicationsGridProps) {
   return (
-    <section className="py-16 md:py-20">
-      <div className="mx-auto w-[min(1320px,92vw)]">
+    <section className="py-14 sm:py-16 md:py-20 overflow-hidden">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mb-8 flex items-end justify-between">
           <div>
             <div className="flex items-center gap-2">

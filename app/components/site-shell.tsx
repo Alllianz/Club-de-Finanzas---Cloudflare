@@ -16,3 +16,5 @@ export { PurposePillars } from "./purpose-pillars";
 export { PublicationCard } from "./publication-card";
 export { PublicationsGrid } from "./publications-grid";
 export { SponsorsStrip } from "./sponsors-strip";
+export { AreaPresidentsTimeline } from "./area-presidents-timeline";
+export { FeaturedAreaCarousel } from "./featured-area-carousel";

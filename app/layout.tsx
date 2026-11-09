@@ -27,10 +27,10 @@ export default function RootLayout({
       lang="es"
       className={cn(
         montserrat.variable,
-        "font-sans scroll-smooth",
+        "font-sans scroll-smooth max-w-[100vw] overflow-x-hidden",
       )}
     >
-      <body className="min-h-screen bg-[#ffffff] font-sans text-[#334155] antialiased selection:bg-[#0b1727]/10 selection:text-[#0b1727]">
+      <body className="min-h-screen max-w-[100vw] overflow-x-hidden bg-[#ffffff] font-sans text-[#334155] antialiased selection:bg-[#0b1727]/10 selection:text-[#0b1727]">
         <Providers>{children}</Providers>
       </body>
     </html>

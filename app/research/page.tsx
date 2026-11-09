@@ -1,4 +1,5 @@
 import {
+  AreaPresidentsTimeline,
   FeaturedStory,
   FeedGrid,
   PageHero,
@@ -44,7 +45,7 @@ export default async function ResearchPage() {
         description="Elaboración de tesis de inversión fundamental, análisis contable y financiero de compañías, modelos de flujos descontados y estudios macroeconómicos de coyuntura."
       />
 
-      <main className="mx-auto w-[min(1280px,92vw)] space-y-16 py-12 md:space-y-20 md:py-16">
+      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 space-y-16 py-12 md:space-y-20 md:py-16">
         {/* Pilares Metodológicos de Research */}
         <section className="space-y-6">
           <SectionLabel
@@ -89,6 +90,17 @@ export default async function ResearchPage() {
             description="Marcos teóricos rigurosos, seguimiento macroeconómico de Argentina y valuación sectorial internacional."
           />
           <FeedGrid items={feed} />
+        </section>
+
+        {/* Línea de Tiempo de Presidentes de Research */}
+        <section className="pt-6 border-t border-[#e2e8f0]">
+          <AreaPresidentsTimeline
+            initialArea="RESEARCH"
+            showTabs={false}
+            title="Presidentes y Liderazgo de Research"
+            eyebrow="Historia & Mandatos"
+            description="Comisión directiva histórica y actual a cargo de la investigación macrofinanciera y tesis fundamentales."
+          />
         </section>
       </main>
 

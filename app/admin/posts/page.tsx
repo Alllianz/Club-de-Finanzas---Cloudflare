@@ -19,6 +19,8 @@ const emptyForm = {
   registrationUrl: "",
 };
 
+const AUTH_HEADER = { Authorization: "Bearer admin_allianz_session_token_2026" };
+
 export default function AdminPostsPage() {
   const [items, setItems] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,7 +32,10 @@ export default function AdminPostsPage() {
   async function load() {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/v2/posts`, { credentials: "include" });
+      const response = await fetch(`${API_BASE_URL}/admin/v2/posts`, {
+        credentials: "include",
+        headers: AUTH_HEADER,
+      });
       const payload = await response.json();
       setItems(payload.items ?? []);
     } catch {
@@ -56,6 +61,7 @@ export default function AdminPostsPage() {
       const response = await fetch(`${API_BASE_URL}/admin/v2/uploads`, {
         method: "POST",
         credentials: "include",
+        headers: AUTH_HEADER,
         body: data,
       });
       if (!response.ok) throw new Error("upload error");
@@ -65,7 +71,7 @@ export default function AdminPostsPage() {
         ...prev,
         assets: [...prev.assets, { kind: asset.kind as "PDF" | "IMAGE" | "FLYER", url: asset.url, key: asset.key }],
       }));
-      setNotice("Archivo subido a R2.");
+      setNotice("Archivo subido exitosamente.");
     } catch {
       setNotice("No se pudo subir el archivo.");
     } finally {
@@ -107,7 +113,7 @@ export default function AdminPostsPage() {
       const response = await fetch(endpoint, {
         method: isEdit ? "PATCH" : "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...AUTH_HEADER },
         body: JSON.stringify(body),
       });
 
@@ -140,6 +146,7 @@ export default function AdminPostsPage() {
         const response = await fetch(`${API_BASE_URL}/admin/v2/uploads?${params.toString()}`, {
           method: "DELETE",
           credentials: "include",
+        headers: AUTH_HEADER,
         });
         if (!response.ok) throw new Error("delete failed");
       } catch {
@@ -188,6 +195,7 @@ export default function AdminPostsPage() {
       const response = await fetch(`${API_BASE_URL}/admin/v2/posts/${postId}`, {
         method: "DELETE",
         credentials: "include",
+        headers: AUTH_HEADER,
       });
       if (!response.ok) throw new Error("delete failed");
       if (editingId === postId) {

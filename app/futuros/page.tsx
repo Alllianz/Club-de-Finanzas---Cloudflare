@@ -1,4 +1,5 @@
 import {
+  AreaPresidentsTimeline,
   FeaturedStory,
   FeedGrid,
   PageHero,
@@ -47,7 +48,7 @@ export default async function FuturosPage() {
           <div className="flex flex-wrap items-center gap-4">
             <a
               href="#terminal-futuros"
-              className="inline-flex items-center gap-2 rounded-xl bg-[#0b1727] px-6 py-3.5 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-md transition hover:bg-[#1e3a8a] active:scale-[0.99]"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0b1727] px-4 sm:px-6 py-3.5 text-xs font-bold uppercase tracking-[0.14em] text-white shadow-md transition hover:bg-[#1e3a8a] active:scale-[0.99] max-w-full text-center text-wrap break-words"
             >
               <span>⚡ Acceder al Terminal de Paper Trading de Futuros</span>
               <span>↓</span>
@@ -59,7 +60,7 @@ export default async function FuturosPage() {
         }
       />
 
-      <main className="mx-auto w-[min(1320px,92vw)] space-y-16 py-14 md:space-y-20 md:py-20">
+      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 space-y-16 py-12 md:space-y-20 md:py-16">
         {/* Pilares Metodológicos de Futuros */}
         <section className="space-y-8">
           <SectionLabel
@@ -111,6 +112,17 @@ export default async function FuturosPage() {
             <FeedGrid items={feed} />
           </section>
         )}
+
+        {/* Línea de Tiempo de Presidentes de Futuros */}
+        <section className="pt-6 border-t border-[#e2e8f0]">
+          <AreaPresidentsTimeline
+            initialArea="FUTUROS"
+            showTabs={false}
+            title="Presidentes y Liderazgo de Futuros & Derivados"
+            eyebrow="Historia & Mandatos"
+            description="Trazabilidad histórica de las presidencias del área de futuros, modelos de arbitraje e hitos de paper trading."
+          />
+        </section>
 
         {/* Terminal Cuantitativo Oficial de Futuros & Paper Trading */}
         <section id="terminal-futuros" className="pt-10 border-t border-[#e2e8f0] scroll-mt-24">

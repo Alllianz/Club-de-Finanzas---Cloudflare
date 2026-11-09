@@ -20,16 +20,23 @@ export function SiteHeader({ currentPath }: NavProps) {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-[#e5e7eb] bg-[#ffffff]/98 backdrop-blur-md transition-all shadow-xs">
+    <header className="relative sticky top-0 z-50 border-b border-[#e5e7eb] bg-[#ffffff]/98 backdrop-blur-md transition-all shadow-xs">
       <Topline />
-      <div className="mx-auto flex w-[min(1420px,94vw)] items-center justify-between py-3.5 sm:py-4 md:py-5 min-h-[76px] sm:min-h-[84px] md:min-h-[90px]">
+      {/* Botón Oculto de Gestión: target invisible en el centro exacto del ancho del header */}
+      <Link
+        href="/admin"
+        className="absolute left-1/2 top-0 -translate-x-1/2 h-full w-14 sm:w-16 opacity-0 z-30 cursor-pointer select-none"
+        aria-label="Gestión"
+        tabIndex={-1}
+      />
+      <div className="mx-auto flex w-full max-w-7xl px-4 sm:px-6 lg:px-8 items-center justify-between py-3 sm:py-3.5 md:py-4 min-h-[72px] sm:min-h-[80px] md:min-h-[86px]">
         {/* Logo del Club de Finanzas UBA con margen y espacio dedicado */}
         <Link
           href="/"
           className="group flex items-center my-1 sm:my-1.5 md:my-2 transition-opacity hover:opacity-95"
           aria-label="Club de Finanzas UBA - Inicio"
         >
-          <div className="relative flex h-11 sm:h-12 md:h-14 lg:h-15 w-[190px] sm:w-[230px] md:w-[270px] lg:w-[305px] items-center justify-start py-0.5">
+          <div className="relative flex h-10 sm:h-12 md:h-14 w-[160px] sm:w-[210px] md:w-[250px] lg:w-[280px] items-center justify-start py-0.5">
             <Image
               src="/clubdefinanzasubalogohorizontal.png"
               alt="Club de Finanzas UBA"
