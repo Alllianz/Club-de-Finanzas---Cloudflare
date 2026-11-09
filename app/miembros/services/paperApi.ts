@@ -38,14 +38,39 @@ export async function loginGroup(
 }
 
 export async function fetchQuote(symbol: string): Promise<LiveMarketQuote> {
-  const res = await fetch(`${API_BASE}/api/paper/market/quote/${encodeURIComponent(symbol)}?_t=${Date.now()}`, {
-    cache: "no-store",
-  });
+  const cleanSymbol = (symbol || "").trim().toUpperCase();
+  if (cleanSymbol.length < 2) {
+    throw new Error("El símbolo debe tener al menos 2 caracteres.");
+  }
+  // Se omiten ?_t y cache: no-store para permitir que Cloudflare Edge Cache optimice las peticiones concurrentes
+  const res = await fetch(`${API_BASE}/api/paper/market/quote/${encodeURIComponent(cleanSymbol)}`);
   const data = await res.json();
   if (!res.ok || !data.success) {
-    throw new Error(data.error || `No se pudo obtener cotización para ${symbol}`);
+    throw new Error(data.error || `No se pudo obtener cotización para ${cleanSymbol}`);
   }
   return data.data;
+}
+
+export async function fetchQuotesBatch(symbols: string[]): Promise<Record<string, LiveMarketQuote>> {
+  const validSymbols = Array.from(
+    new Set(
+      symbols
+        .map((s) => (s || "").trim().toUpperCase())
+        .filter((s) => s.length >= 2)
+    )
+  );
+  if (validSymbols.length === 0) {
+    return {};
+  }
+
+  // Petición por lote optimizada: reduce N peticiones a 1 sola llamada con soporte de Edge Cache
+  const query = `?symbols=${encodeURIComponent(validSymbols.join(","))}`;
+  const res = await fetch(`${API_BASE}/api/paper/market/quotes-batch${query}`);
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || "No se pudieron obtener cotizaciones en lote.");
+  }
+  return data.data || {};
 }
 
 export async function fetchPortfolio(

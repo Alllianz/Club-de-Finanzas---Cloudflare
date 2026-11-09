@@ -5,9 +5,14 @@ import { GroupTradingProvider, useGroupTrading } from "@/app/miembros/context/Gr
 import { PaperTradingDashboard } from "@/app/miembros/components/PaperTradingDashboard";
 import { TournamentManagementPanel } from "@/app/miembros/components/TournamentManagementPanel";
 
-function PortfolioEngineViewerInner() {
+function PortfolioEngineViewerInner({
+  isOpen,
+  setIsOpen,
+}: {
+  isOpen: boolean;
+  setIsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+}) {
   const { currentGroup, login, logout, isActionLoading } = useGroupTrading();
-  const [isOpen, setIsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeTab, setActiveTab] = useState<"paper" | "markowitz" | "tournament">("paper");
@@ -338,9 +343,11 @@ function PortfolioEngineViewerInner() {
 }
 
 export const PortfolioEngineViewer: React.FC = () => {
+  const [isOpen, setIsOpen] = useState(false);
+
   return (
-    <GroupTradingProvider marketType="PORTFOLIO">
-      <PortfolioEngineViewerInner />
+    <GroupTradingProvider marketType="PORTFOLIO" pollingEnabled={isOpen}>
+      <PortfolioEngineViewerInner isOpen={isOpen} setIsOpen={setIsOpen} />
     </GroupTradingProvider>
   );
 };

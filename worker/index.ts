@@ -1,7 +1,7 @@
 // Cloudflare Worker Principal - Club de Finanzas UBA
 // Conexión a Cloudflare D1, Motor Paper Trading Institucional y Servicio de Activos Next.js
 
-import { Env } from "./types";
+import { Env, ScheduledEvent, ExecutionContext } from "./types";
 import { authenticateGroupCredentials, createGroupSessionToken } from "./group-auth";
 import { fetchLiveMarketQuote } from "./market-feed";
 import {
@@ -36,6 +36,19 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, x-group-token",
   "Content-Type": "application/json",
 };
+
+// Throttle en memoria por grupo/torneo para evitar ráfagas duplicadas de matchPendingOrders
+const lastMatchRuns = new Map<string, number>();
+async function throttledMatchPendingOrders(db: any, groupId: string, targetGameId?: string) {
+  const key = `${groupId}:${targetGameId || "default"}`;
+  const now = Date.now();
+  const last = lastMatchRuns.get(key) || 0;
+  if (now - last < 5000) {
+    return;
+  }
+  lastMatchRuns.set(key, now);
+  await matchPendingOrders(db, groupId, targetGameId);
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -149,17 +162,21 @@ export default {
     if (url.pathname.startsWith("/api/paper/market/quote/") && request.method === "GET") {
       try {
         const rawSymbol = decodeURIComponent(url.pathname.split("/quote/")[1] || "").trim();
-        if (!rawSymbol) {
+        if (!rawSymbol || rawSymbol.length < 2) {
           return new Response(
-            JSON.stringify({ success: false, error: "Símbolo requerido." }),
+            JSON.stringify({ success: false, error: "Símbolo requerido (mínimo 2 caracteres)." }),
             { status: 400, headers: corsHeaders }
           );
         }
 
         const quote = await fetchLiveMarketQuote(rawSymbol);
+        const quoteHeaders = {
+          ...corsHeaders,
+          "Cache-Control": "public, max-age=10, s-maxage=10, stale-while-revalidate=5",
+        };
         return new Response(
           JSON.stringify({ success: true, data: quote }),
-          { status: 200, headers: corsHeaders }
+          { status: 200, headers: quoteHeaders }
         );
       } catch (err) {
         return new Response(
@@ -168,6 +185,56 @@ export default {
             error: err instanceof Error ? err.message : "Error al obtener cotización.",
           }),
           { status: 404, headers: corsHeaders }
+        );
+      }
+    }
+
+    // Endpoint por lote: /api/paper/market/quotes-batch?symbols=NVDA,AAPL,BTC-USD
+    if (url.pathname === "/api/paper/market/quotes-batch" && request.method === "GET") {
+      try {
+        const rawSymbols = url.searchParams.get("symbols") || "";
+        const symbols = rawSymbols
+          .split(",")
+          .map((s) => s.trim().toUpperCase())
+          .filter((s) => s.length >= 2);
+
+        if (symbols.length === 0) {
+          return new Response(
+            JSON.stringify({ success: true, data: {} }),
+            { status: 200, headers: corsHeaders }
+          );
+        }
+
+        const cappedSymbols = symbols.slice(0, 30);
+        const results: Record<string, any> = {};
+
+        await Promise.allSettled(
+          cappedSymbols.map(async (sym) => {
+            try {
+              const q = await fetchLiveMarketQuote(sym);
+              results[sym] = q;
+            } catch {
+              // Silencioso por activo no encontrado
+            }
+          })
+        );
+
+        const batchHeaders = {
+          ...corsHeaders,
+          "Cache-Control": "public, max-age=10, s-maxage=10, stale-while-revalidate=5",
+        };
+
+        return new Response(
+          JSON.stringify({ success: true, data: results }),
+          { status: 200, headers: batchHeaders }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al procesar lote de cotizaciones.",
+          }),
+          { status: 500, headers: corsHeaders }
         );
       }
     }
@@ -194,7 +261,7 @@ export default {
 
         const targetGameId = url.searchParams.get("gameId")?.trim() || undefined;
         // Emparejar órdenes límite pendientes contra cotizaciones spot en tiempo real (Zero Look-Ahead Bias)
-        await matchPendingOrders(env.DB, groupId, targetGameId);
+        await throttledMatchPendingOrders(env.DB, groupId, targetGameId);
 
         const result = await getMarkedPortfolio(env.DB, groupId, targetGameId);
         return new Response(
@@ -215,7 +282,7 @@ export default {
     // =========================================================================
     // 4. EJECUTAR O REGISTRAR ORDEN (MERCADO O LÍMITE - COMPRA Y VENTA CON SOLO LONG)
     // =========================================================================
-    if (url.pathname === "/api/paper/orders" && request.method === "POST") {
+    if ((url.pathname === "/api/paper/orders" || url.pathname === "/api/paper/order") && request.method === "POST") {
       try {
         if (!env.DB) {
           return new Response(
@@ -293,8 +360,8 @@ export default {
         }
 
         const targetGameId = url.searchParams.get("gameId")?.trim() || undefined;
-        // Emparejar órdenes límite pendientes
-        await matchPendingOrders(env.DB, groupId, targetGameId);
+        // Emparejar órdenes límite pendientes (con throttle anti-ráfaga)
+        await throttledMatchPendingOrders(env.DB, groupId, targetGameId);
 
         const orders = await getPaperOrders(env.DB, groupId, targetGameId);
         return new Response(
@@ -315,7 +382,7 @@ export default {
     // =========================================================================
     // 4.2 CANCELAR ORDEN LÍMITE PENDIENTE
     // =========================================================================
-    if (url.pathname === "/api/paper/orders/cancel" && request.method === "POST") {
+    if ((url.pathname === "/api/paper/orders/cancel" || url.pathname === "/api/paper/order/cancel") && request.method === "POST") {
       try {
         if (!env.DB) {
           return new Response(
@@ -1076,5 +1143,15 @@ export default {
     // 9. SERVIR ACTIVOS ESTÁTICOS DE NEXT.JS
     // =========================================================================
     return env.ASSETS.fetch(request);
+  },
+
+  /**
+   * Cron Trigger para ejecución autónoma de órdenes límite y apertura fuera de hora (1 minuto)
+   * Anti Look-Ahead Bias: t_ejecucion >= t_apertura
+   */
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (env.DB) {
+      await matchPendingOrders(env.DB);
+    }
   },
 };

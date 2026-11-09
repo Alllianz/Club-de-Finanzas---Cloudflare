@@ -18,6 +18,8 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
   const [positionSide, setPositionSide] = useState<"LONG" | "SHORT">("LONG");
   const [leverage, setLeverage] = useState<number>(5);
   const [quantity, setQuantity] = useState<number>(1);
+  const [sizingMode, setSizingMode] = useState<"CONTRACTS" | "USD">("USD");
+  const [amountUsd, setAmountUsd] = useState<string>("1000");
   const [marginMode, setMarginMode] = useState<"ISOLATED" | "CROSS">("ISOLATED");
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -55,7 +57,33 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
 
   // Cálculos Cuantitativos de Derivados (Sin Look-Ahead Bias)
   const currentPrice = quote?.price || 0;
-  const rawNotional = currentPrice * quantity;
+  const multiplier = selectedContract.multiplier || 1;
+  const contractUnitValue = currentPrice * multiplier;
+
+  // Sincronización de cantidad y monto en dólares
+  const handleAmountUsdChange = (valStr: string) => {
+    setAmountUsd(valStr);
+    const valNum = parseFloat(valStr) || 0;
+    if (contractUnitValue > 0 && valNum > 0) {
+      const calculatedQty = valNum / contractUnitValue;
+      setQuantity(Number(calculatedQty.toFixed(4)));
+    } else if (!valStr) {
+      setQuantity(0);
+    }
+  };
+
+  const handleQuantityChange = (val: number) => {
+    setQuantity(val);
+    if (contractUnitValue > 0 && val > 0) {
+      setAmountUsd((val * contractUnitValue).toFixed(2));
+    }
+  };
+
+  const effectiveQty = sizingMode === "USD" && contractUnitValue > 0 && parseFloat(amountUsd) > 0
+    ? parseFloat(amountUsd) / contractUnitValue
+    : quantity;
+
+  const rawNotional = currentPrice * effectiveQty * multiplier;
   const initialMarginRequired = rawNotional > 0 ? rawNotional / leverage : 0;
   const feeEstimated = Math.max(1.25, (rawNotional * 0.0002)); // 2 bps con piso de $1.25
   const totalCashRequired = initialMarginRequired + feeEstimated;
@@ -83,10 +111,12 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
       return;
     }
 
-    if (quantity <= 0) {
+    const finalQuantity = effectiveQty;
+
+    if (finalQuantity <= 0) {
       setFeedbackMsg({
         type: "error",
-        text: "La cantidad de contratos debe ser mayor a cero.",
+        text: "La cantidad o el monto en dólares a invertir debe ser mayor a cero.",
       });
       return;
     }
@@ -102,7 +132,7 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
     const res = await placeOrder(
       selectedContract.symbol,
       positionSide,
-      quantity,
+      finalQuantity,
       leverage,
       marginMode
     );
@@ -224,27 +254,137 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
           </div>
         </div>
 
-        {/* Cantidad de Contratos */}
-        <div>
+        {/* Modalidad de Inversión: Por Dólares ($ USD) vs Por Cantidad de Contratos */}
+        <div className="rounded-xl border border-[#cbd5e1] bg-[#f8fafc] p-3.5 space-y-3">
           <div className="flex items-center justify-between">
             <label className="text-[11px] font-bold uppercase tracking-wider text-[#475569]">
-              Cantidad de Contratos
+              Modalidad de Inversión
             </label>
-            <span className="text-[10px] text-[#64748b]">
-              Multiplicador: 1 contrato = {selectedContract.multiplier} {selectedContract.category === "FX" ? "USD" : "unidades"}
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-white text-[#0062ff] border-blue-200">
+              {sizingMode === "USD" ? "💵 Selección en Dólares ($ USD)" : "📊 Selección en Contratos"}
             </span>
           </div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <input
-              type="number"
-              min={1}
-              max={100}
-              step={1}
-              value={quantity}
-              onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-              className="w-full rounded-xl border border-[#cbd5e1] bg-[#f8fafc] px-4 py-2.5 font-mono text-sm font-bold text-[#0b1727] outline-none transition focus:border-[#0062ff] focus:bg-white"
-            />
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSizingMode("USD");
+                if (contractUnitValue > 0 && quantity > 0) {
+                  setAmountUsd((quantity * contractUnitValue).toFixed(2));
+                }
+              }}
+              className={`rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                sizingMode === "USD"
+                  ? "bg-[#0062ff] text-white shadow-xs"
+                  : "bg-white border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]"
+              }`}
+            >
+              <span>💵 Invertir en Dólares ($ USD)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSizingMode("CONTRACTS");
+                if (contractUnitValue > 0 && parseFloat(amountUsd) > 0) {
+                  setQuantity(Math.max(1, Math.round(parseFloat(amountUsd) / contractUnitValue)));
+                }
+              }}
+              className={`rounded-xl py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                sizingMode === "CONTRACTS"
+                  ? "bg-[#0b1727] text-white shadow-xs"
+                  : "bg-white border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]"
+              }`}
+            >
+              <span>📊 Contratos</span>
+            </button>
           </div>
+
+          {sizingMode === "USD" ? (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#0b1727]">
+                  Monto a Invertir en Futuros ($ USD)
+                </label>
+                {contractUnitValue > 0 && (
+                  <span className="text-[10px] font-mono text-[#64748b]">
+                    1 contrato = ${contractUnitValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                  </span>
+                )}
+              </div>
+
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono font-bold text-[#64748b] text-base">
+                  $
+                </span>
+                <input
+                  type="number"
+                  step="any"
+                  min="1"
+                  value={amountUsd}
+                  onChange={(e) => handleAmountUsdChange(e.target.value)}
+                  placeholder="ej: 1000.00"
+                  className="w-full rounded-xl border border-[#93c5fd] bg-white pl-8 pr-4 py-2.5 font-mono text-base font-bold text-[#0b1727] outline-none transition focus:border-[#0062ff]"
+                />
+              </div>
+
+              {/* Botones de Porcentaje del Saldo */}
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-[#64748b]">
+                  Del Saldo:
+                </span>
+                {[0.25, 0.5, 0.75, 1.0].map((ratio) => (
+                  <button
+                    key={ratio}
+                    type="button"
+                    onClick={() => {
+                      const avail = portfolio?.cash_balance ?? 10000;
+                      const val = avail * ratio;
+                      handleAmountUsdChange(val >= 1 ? val.toFixed(2) : val.toFixed(4));
+                    }}
+                    className="flex-1 rounded border border-blue-200 bg-white py-1 text-[10px] font-bold text-[#0062ff] hover:bg-blue-50 transition"
+                  >
+                    {ratio === 1.0 ? "100% Máx" : `${ratio * 100}%`}
+                  </button>
+                ))}
+              </div>
+
+              {/* Contratos equivalentes */}
+              <div className="rounded-lg bg-blue-50 border border-blue-200 p-2 text-xs text-[#0062ff] flex items-center justify-between">
+                <span>Contratos Calculados:</span>
+                <span className="font-mono font-bold">
+                  {effectiveQty.toFixed(4)} contratos de {selectedContract.symbol}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#0b1727]">
+                  Cantidad de Contratos
+                </label>
+                <span className="text-[10px] text-[#64748b]">
+                  1 contrato = {selectedContract.multiplier} {selectedContract.category === "FX" ? "USD" : "unidades"}
+                </span>
+              </div>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                value={quantity}
+                onChange={(e) => handleQuantityChange(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-full rounded-xl border border-[#cbd5e1] bg-white px-4 py-2.5 font-mono text-base font-bold text-[#0b1727] outline-none transition focus:border-[#0062ff]"
+              />
+
+              <div className="rounded-lg bg-slate-100 border border-slate-200 p-2 text-xs text-[#475569] flex items-center justify-between">
+                <span>Inversión Nocional Equivalente:</span>
+                <span className="font-mono font-bold text-[#0b1727]">
+                  ${rawNotional.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Selector de Apalancamiento y Margen (hasta 100x) */}

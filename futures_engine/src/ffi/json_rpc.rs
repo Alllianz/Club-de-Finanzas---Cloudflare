@@ -96,6 +96,9 @@ impl JsonRpcHandler {
             "process_tick" => Self::handle_process_tick(session, req_id, &req.params),
             "get_account" => Self::handle_get_account(session, req_id, &req.params),
             "get_positions" => Self::handle_get_positions(session, req_id, &req.params),
+            "calculate_max_drawdown" => Self::handle_calculate_max_drawdown(req_id, &req.params),
+            "rank_tournament_competitors" => Self::handle_rank_tournament_competitors(req_id, &req.params),
+            "size_position_from_dollars" => Self::handle_size_position_from_dollars(req_id, &req.params),
             _ => JsonRpcResponse::error(req_id, -32601, format!("Method '{}' not found", req.method)),
         };
 
@@ -296,11 +299,13 @@ impl JsonRpcHandler {
     }
 
     fn handle_submit_order(session: &mut SessionManager, id: Value, params: &Value) -> JsonRpcResponse {
-        let order_id = params
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("ord-auto")
-            .to_string();
+        let order_id = match params.get("id").and_then(|v| v.as_str()) {
+            Some(s) if !s.trim().is_empty() => s.to_string(),
+            _ => {
+                session.trade_counter += 1;
+                format!("ord-auto-{}", session.trade_counter)
+            }
+        };
         let account_id = match params.get("account_id").and_then(|v| v.as_str()) {
             Some(s) => s,
             None => return JsonRpcResponse::error(id, -32602, "Falta 'account_id'"),
@@ -420,5 +425,80 @@ impl JsonRpcHandler {
 
         let positions = session.get_positions(account_id);
         JsonRpcResponse::success(id, serde_json::to_value(positions).unwrap())
+    }
+
+    fn handle_calculate_max_drawdown(id: Value, params: &Value) -> JsonRpcResponse {
+        let initial_capital = params.get("initial_capital").and_then(|v| v.as_f64()).unwrap_or(10_000.0);
+        let equity_series = match params.get("equity_series").and_then(|v| v.as_array()) {
+            Some(arr) => arr.iter().filter_map(|v| v.as_f64()).collect::<Vec<f64>>(),
+            None => return JsonRpcResponse::error(id, -32602, "Falta array 'equity_series'"),
+        };
+
+        let metrics = crate::risk::DrawdownCalculator::calculate_nominal_drawdown(initial_capital, &equity_series);
+        JsonRpcResponse::success(id, serde_json::to_value(metrics).unwrap())
+    }
+
+    fn handle_rank_tournament_competitors(id: Value, params: &Value) -> JsonRpcResponse {
+        let rule_str = params.get("rule").and_then(|v| v.as_str()).unwrap_or("PORTFOLIO_RETURN_OVER_MAX_DD");
+        let rule = if rule_str.eq_ignore_ascii_case("FUTURES_MAX_TOTAL_CAPITAL") || rule_str.eq_ignore_ascii_case("FUTURES") {
+            crate::risk::TournamentRankingRule::FuturesMaxTotalCapital
+        } else {
+            crate::risk::TournamentRankingRule::PortfolioReturnOverMaxDd
+        };
+
+        let competitors_json = match params.get("competitors").and_then(|v| v.as_array()) {
+            Some(arr) => arr,
+            None => return JsonRpcResponse::error(id, -32602, "Falta array 'competitors'"),
+        };
+
+        let mut competitors = Vec::new();
+        for c in competitors_json {
+            let group_id = match c.get("group_id").and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => return JsonRpcResponse::error(id, -32602, "Cada competidor debe tener 'group_id'"),
+            };
+            let group_name = c.get("group_name").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let total_capital = c.get("total_capital").and_then(|v| v.as_f64()).unwrap_or(10_000.0);
+            let initial_capital = c.get("initial_capital").and_then(|v| v.as_f64()).unwrap_or(10_000.0);
+            let max_drawdown_nominal = c.get("max_drawdown_nominal").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+            competitors.push(crate::risk::CompetitorScoreInput {
+                group_id,
+                group_name,
+                total_capital,
+                initial_capital,
+                max_drawdown_nominal,
+            });
+        }
+
+        let ranked = crate::risk::TournamentRanker::rank_competitors(rule, competitors);
+        JsonRpcResponse::success(id, serde_json::to_value(ranked).unwrap())
+    }
+
+    fn handle_size_position_from_dollars(id: Value, params: &Value) -> JsonRpcResponse {
+        let amount_usd = match params.get("amount_usd").and_then(|v| v.as_f64()) {
+            Some(v) => v,
+            None => return JsonRpcResponse::error(id, -32602, "Falta 'amount_usd' numérico"),
+        };
+        let price = match params.get("price").and_then(|v| v.as_f64()) {
+            Some(v) => v,
+            None => return JsonRpcResponse::error(id, -32602, "Falta 'price' numérico"),
+        };
+        let leverage = params.get("leverage").and_then(|v| v.as_f64()).unwrap_or(1.0);
+        let available_cash = params.get("available_cash").and_then(|v| v.as_f64()).unwrap_or(10_000.0);
+        let contract_multiplier = params.get("contract_multiplier").and_then(|v| v.as_f64());
+
+        let input = crate::risk::PositionSizingInput {
+            amount_usd,
+            price,
+            leverage,
+            available_cash,
+            contract_multiplier,
+        };
+
+        match crate::risk::PositionSizer::size_from_dollars(input) {
+            Ok(res) => JsonRpcResponse::success(id, serde_json::to_value(res).unwrap()),
+            Err(e) => JsonRpcResponse::error(id, -32602, e),
+        }
     }
 }

@@ -16,6 +16,17 @@ export interface Fetcher {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 }
 
+export interface ScheduledEvent {
+  cron: string;
+  type: string;
+  scheduledTime: number;
+}
+
+export interface ExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+  passThroughOnException(): void;
+}
+
 export interface Env {
   DB?: D1Database;
   ASSETS: Fetcher;
@@ -38,6 +49,8 @@ export interface PortfolioRecord {
   cash_balance: number;
   realized_pnl: number;
   total_fees: number;
+  peak_equity?: number;
+  max_drawdown_nominal?: number;
   updated_at: number;
 }
 
@@ -76,6 +89,14 @@ export interface TradeRecord {
   timestamp: number;
 }
 
+export type OrderStatus =
+  | "PENDING"
+  | "PENDING_OPEN"
+  | "PARTIALLY_FILLED"
+  | "FILLED"
+  | "CANCELLED"
+  | "REJECTED";
+
 export interface OrderRecord {
   id: string;
   game_id: string;
@@ -90,7 +111,7 @@ export interface OrderRecord {
   limit_price: number | null;
   leverage: number;
   margin_mode: "ISOLATED" | "CROSS";
-  status: "PENDING" | "FILLED" | "CANCELLED" | "REJECTED";
+  status: OrderStatus;
   created_at: number;
   filled_at: number | null;
 }
@@ -106,8 +127,12 @@ export interface LeaderboardEntry {
   totalFees: number;
   equity: number;
   roePct: number;
+  peakEquity: number;
+  maxDrawdownNominal: number;
   openPositionsCount: number;
   rank: number;
+  score?: number;
+  rankingRule?: "PORTFOLIO" | "FUTURES" | string;
 }
 
 export interface TournamentRecord {

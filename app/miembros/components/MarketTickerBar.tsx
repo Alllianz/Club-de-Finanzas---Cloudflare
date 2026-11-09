@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
-import { POPULAR_TICKERS } from "../constants/groups";
-import { fetchQuote } from "../services/paperApi";
+import React, { useEffect, useState, useRef, useMemo } from "react";
+import { useGroupTrading } from "../context/GroupTradingContext";
+import { fetchQuote, fetchQuotesBatch } from "../services/paperApi";
 import { LiveMarketQuote } from "../types/paper-trading";
 import { realtimePriceStream, RealtimePriceTick } from "../services/realtimePriceStream";
 
@@ -11,12 +11,22 @@ export const MarketTickerBar: React.FC<{
   customTickers?: { symbol: string; label?: string; type?: string }[];
 }> = ({
   onSelectSymbol,
-  customTickers,
 }) => {
-  const activeTickers = customTickers || POPULAR_TICKERS;
+  const { positions } = useGroupTrading();
+
+  // Directiva de Allianz: SOLAMENTE cotizar los activos que el grupo tiene efectivamente en cartera
+  const heldSymbols = useMemo(() => {
+    if (!positions || positions.length === 0) return [];
+    const list = positions
+      .filter((p) => (p.quantity || 0) > 0)
+      .map((p) => (p.symbol || "").trim().toUpperCase())
+      .filter((s) => s.length >= 2);
+    return Array.from(new Set(list));
+  }, [positions]);
+
   const [quotes, setQuotes] = useState<Record<string, LiveMarketQuote>>({});
   const [flashStates, setFlashStates] = useState<Record<string, "up" | "down">>({});
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(false);
   const flashTimers = useRef<Record<string, any>>({});
 
   const triggerFlash = (symbol: string, dir: "up" | "down") => {
@@ -32,15 +42,34 @@ export const MarketTickerBar: React.FC<{
   };
 
   useEffect(() => {
+    // Si no hay activos en cartera, omitir completamente peticiones de red y subscripciones
+    if (heldSymbols.length === 0) {
+      setQuotes({});
+      setLoading(false);
+      return;
+    }
+
     let isMounted = true;
+    setLoading(true);
 
-    // 1. Cargar estado inicial de todos los tickers
     const loadTickerQuotes = async () => {
-      const results: Record<string, LiveMarketQuote> = {};
-      const symbols = activeTickers.map((t) => t.symbol);
+      if (document.hidden || !isMounted || heldSymbols.length === 0) return;
 
+      try {
+        // 1. Intentar consulta batch (1 request para todos los activos en cartera)
+        const batchResults = await fetchQuotesBatch(heldSymbols);
+        if (isMounted && Object.keys(batchResults).length > 0) {
+          setQuotes((prev) => ({ ...prev, ...batchResults }));
+          setLoading(false);
+          return;
+        }
+      } catch {
+        // Fallback resiliente a peticiones individuales cacheadas en el Edge
+      }
+
+      const results: Record<string, LiveMarketQuote> = {};
       await Promise.allSettled(
-        symbols.map(async (s) => {
+        heldSymbols.map(async (s) => {
           try {
             const q = await fetchQuote(s);
             if (isMounted) results[s] = q;
@@ -58,29 +87,29 @@ export const MarketTickerBar: React.FC<{
 
     loadTickerQuotes();
 
-    // 2. Suscribir tickers Cripto al WebSocket de ultra-baja latencia (1 segundo)
+    // 2. Suscribir exclusivamente activos cripto que el grupo tenga en cartera
     const unsubscribers: (() => void)[] = [];
-    const cryptoTickers = activeTickers.filter(
-      (t) =>
-        t.symbol.endsWith("-USD") ||
-        t.symbol.endsWith("USDT") ||
-        t.symbol.includes("BTC") ||
-        t.symbol.includes("ETH") ||
-        t.symbol.includes("SOL")
+    const cryptoHeld = heldSymbols.filter(
+      (s) =>
+        s.endsWith("-USD") ||
+        s.endsWith("USDT") ||
+        s.includes("BTC") ||
+        s.includes("ETH") ||
+        s.includes("SOL")
     );
 
-    cryptoTickers.forEach((t) => {
-      const unsub = realtimePriceStream.subscribe(t.symbol, (tick: RealtimePriceTick) => {
-        if (!isMounted) return;
+    cryptoHeld.forEach((sym) => {
+      const unsub = realtimePriceStream.subscribe(sym, (tick: RealtimePriceTick) => {
+        if (!isMounted || document.hidden) return;
         setQuotes((prev) => {
-          const old = prev[t.symbol];
+          const old = prev[sym];
           if (old && old.price !== tick.price) {
-            triggerFlash(t.symbol, tick.price > old.price ? "up" : "down");
+            triggerFlash(sym, tick.price > old.price ? "up" : "down");
           }
           return {
             ...prev,
-            [t.symbol]: {
-              symbol: t.symbol,
+            [sym]: {
+              symbol: sym,
               asset_type: "Crypto",
               price: tick.price,
               change_24h_pct: tick.change24hPct,
@@ -95,16 +124,49 @@ export const MarketTickerBar: React.FC<{
       unsubscribers.push(unsub);
     });
 
-    // 3. Intervalo de actualización para acciones (aprovecha la caché Edge del Worker a 10s)
-    const interval = setInterval(loadTickerQuotes, 10000);
+    // 3. Polling cada 15s respetando Page Visibility API
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        loadTickerQuotes();
+      }
+    }, 15000);
+
+    const handleVisibility = () => {
+      if (!document.hidden && isMounted) {
+        loadTickerQuotes();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       isMounted = false;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
       unsubscribers.forEach((u) => u());
       Object.values(flashTimers.current).forEach((tm) => clearTimeout(tm));
     };
-  }, []);
+  }, [heldSymbols]);
+
+  // Si no hay posiciones en cartera, mostrar banner limpio sin emitir ningún request
+  if (heldSymbols.length === 0) {
+    return (
+      <div className="overflow-x-auto rounded-xl border border-[#e5e7eb] bg-white p-3 shadow-2xs">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 border-r border-[#e5e7eb] pr-3">
+            <span className="relative flex h-2 w-2">
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-400"></span>
+            </span>
+            <span className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#0b1727]">
+              Monitor de Cartera
+            </span>
+          </div>
+          <span className="text-xs font-medium text-[#64748b]">
+            Sin activos en cartera para cotizar. Abrí una posición o utilizá el buscador para consultar cotizaciones en vivo.
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="overflow-x-auto rounded-xl border border-[#e5e7eb] bg-white p-3 shadow-2xs">
@@ -115,14 +177,14 @@ export const MarketTickerBar: React.FC<{
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
           <span className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#0b1727]">
-            En Vivo 10s
+            Cartera en Vivo ({heldSymbols.length})
           </span>
         </div>
 
-        {activeTickers.map((t) => {
-          const q = quotes[t.symbol];
+        {heldSymbols.map((sym) => {
+          const q = quotes[sym];
           const isUp = q ? q.change_24h_pct >= 0 : true;
-          const flash = flashStates[t.symbol];
+          const flash = flashStates[sym];
 
           let flashClasses = "border-[#f1f5f9] bg-[#fafaf9]";
           if (flash === "up") {
@@ -133,12 +195,12 @@ export const MarketTickerBar: React.FC<{
 
           return (
             <button
-              key={t.symbol}
+              key={sym}
               type="button"
-              onClick={() => onSelectSymbol && onSelectSymbol(t.symbol)}
+              onClick={() => onSelectSymbol && onSelectSymbol(sym)}
               className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition duration-200 hover:border-[#0b1727] hover:bg-white ${flashClasses}`}
             >
-              <span className="font-bold text-[#0b1727]">{t.symbol}</span>
+              <span className="font-bold text-[#0b1727]">{sym}</span>
               {q ? (
                 <>
                   <span className="font-mono font-semibold text-[#334155]">

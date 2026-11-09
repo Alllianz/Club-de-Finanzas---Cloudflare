@@ -9,7 +9,6 @@ export const cedearsService = {
 
     const response = await fetch(url.toString(), {
       method: "GET",
-      cache: "no-store",
     });
 
     const raw = await response.text();

@@ -161,6 +161,75 @@ async function fetchBinanceCryptoQuote(symbol: string): Promise<MarketQuote | nu
 }
 
 /**
+ * Calcula dinámicamente los días hasta el último día hábil del mes de vencimiento
+ * del contrato Dólar Futuro (Matba Rofex) respecto al instante actual.
+ * Cero Look-Ahead Bias: t <= T (causalidad temporal estricta).
+ */
+export function calculateDaysToMaturityDLR(
+  symbol: string,
+  nowDate: Date = new Date()
+): { daysToMaturity: number; tna: number } {
+  const monthMap: Record<string, number> = {
+    ENE: 0, JAN: 0,
+    FEB: 1,
+    MAR: 2,
+    ABR: 3, APR: 3,
+    MAY: 4,
+    JUN: 5,
+    JUL: 6,
+    AGO: 7, AUG: 7,
+    SEP: 8, SET: 8,
+    OCT: 9,
+    NOV: 10,
+    DIC: 11, DEC: 11,
+  };
+
+  const upper = symbol.toUpperCase();
+  let targetMonth: number | undefined;
+  for (const [mStr, mIdx] of Object.entries(monthMap)) {
+    if (upper.includes(mStr)) {
+      targetMonth = mIdx;
+      break;
+    }
+  }
+
+  if (targetMonth === undefined) {
+    return { daysToMaturity: 30, tna: 0.385 };
+  }
+
+  const currentYear = nowDate.getUTCFullYear();
+  const currentMonth = nowDate.getUTCMonth();
+
+  let targetYear = currentYear;
+  const yearMatch = upper.match(/(\d{2,4})$/);
+  if (yearMatch) {
+    const yVal = parseInt(yearMatch[1], 10);
+    targetYear = yVal < 100 ? 2000 + yVal : yVal;
+  } else if (targetMonth < currentMonth) {
+    targetYear = currentYear + 1;
+  }
+
+  // Último día del mes de vencimiento
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0, 18, 0, 0));
+
+  // Si cae en fin de semana, retroceder al último día hábil (viernes)
+  const dayOfWeek = lastDay.getUTCDay();
+  if (dayOfWeek === 6) {
+    lastDay.setUTCDate(lastDay.getUTCDate() - 1);
+  } else if (dayOfWeek === 0) {
+    lastDay.setUTCDate(lastDay.getUTCDate() - 2);
+  }
+
+  const diffMs = lastDay.getTime() - nowDate.getTime();
+  const daysToMaturity = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+
+  // Tasa Nominal Anual (TNA) implícita de la curva de futuros DLR
+  const tna = 0.38 + 0.08 * (daysToMaturity / 365);
+
+  return { daysToMaturity, tna: Math.round(tna * 1000) / 1000 };
+}
+
+/**
  * Consulta la cotización en vivo desde Yahoo Finance o Binance con Caché Edge
  * Implementa Zero Look-Ahead Bias utilizando la última cotización real en el instante de ejecución.
  */
@@ -191,26 +260,12 @@ export async function fetchLiveMarketQuote(rawSymbol: string): Promise<MarketQuo
     }
   }
 
-  // 2B. Si es Dólar Futuro Matba Rofex (DLR-*), derivar de USDARS=X + curva de tasas implícitas
+  // 2B. Si es Dólar Futuro Matba Rofex (DLR-*), derivar de USDARS=X + curva de tasas implícitas dinámica
   if (symbol.startsWith("DLR-")) {
     const usdQuote = await fetchLiveMarketQuote("USDARS=X");
     const spotPrice = usdQuote.price || 1545.0;
 
-    let daysToMaturity = 30;
-    let tna = 0.385; // 38.5% TNA implícita de referencia
-    if (symbol.includes("ABR") || symbol.includes("APR")) {
-      daysToMaturity = 25;
-      tna = 0.385;
-    } else if (symbol.includes("MAY")) {
-      daysToMaturity = 56;
-      tna = 0.392;
-    } else if (symbol.includes("JUN")) {
-      daysToMaturity = 86;
-      tna = 0.400;
-    } else if (symbol.includes("JUL")) {
-      daysToMaturity = 117;
-      tna = 0.408;
-    }
+    const { daysToMaturity, tna } = calculateDaysToMaturityDLR(symbol, new Date(now));
 
     const futurePrice = spotPrice * (1 + tna * (daysToMaturity / 365));
     const prevFuturePrice = usdQuote.previous_close * (1 + tna * (daysToMaturity / 365));

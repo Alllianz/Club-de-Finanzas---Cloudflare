@@ -49,7 +49,7 @@ export async function ejecutarNeuralAllocation(
       ? payload.tickers.map((s) => s.trim().toUpperCase())
       : defaultTickers;
 
-  if (!tickersToUse.includes("SPY")) tickersToFetch: tickersToUse.unshift("SPY");
+  if (!tickersToUse.includes("SPY")) tickersToUse.unshift("SPY");
 
   const lookback = payload.lookback_window || 63;
   const rebalFreq = payload.rebalance_freq || 21;
@@ -141,6 +141,8 @@ export async function ejecutarNeuralAllocation(
 
     // Evaluar retorno del bloque siguiente [t, min(t + rebalFreq, numDays)]
     const endT = Math.min(t + rebalFreq, numDays);
+    const blockDays = endT - t;
+    const dailyFriction = blockDays > 0 ? frictionPct / blockDays : 0;
     let blockGrossRet = 1.0;
     let blockSpyRet = 1.0;
 
@@ -151,7 +153,8 @@ export async function ejecutarNeuralAllocation(
       }
       blockGrossRet *= 1 + dayPortRet;
       blockSpyRet *= 1 + spyReturns[day];
-      allDailyNetReturns.push(dayPortRet);
+      // Descontar la fricción diaria del rebalanceo distribuida en el bloque para reflejar retornos netos
+      allDailyNetReturns.push(dayPortRet - dailyFriction);
     }
 
     const netRet = (blockGrossRet - 1.0) - frictionPct;

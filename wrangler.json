@@ -3,6 +3,9 @@
   "name": "club-de-finanzas---cloudflare",
   "compatibility_date": "2026-03-01",
   "main": "worker/index.ts",
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
   "assets": {
     "directory": "./out",
     "binding": "ASSETS"

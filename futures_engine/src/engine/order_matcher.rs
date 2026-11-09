@@ -89,16 +89,17 @@ impl OrderMatcher {
                 let stop_p = order.stop_price.ok_or("Orden Stop Loss sin stop_price")?;
                 match order.side {
                     Side::Long => {
-                        // Venta de protección o compra stop
-                        if tick.price <= stop_p {
-                            tick.price
+                        // Compra stop (cubrir corto o compra por ruptura): se activa si tick.price >= stop_p
+                        if tick.price >= stop_p {
+                            tick.ask.unwrap_or(tick.price)
                         } else {
                             return Ok(None);
                         }
                     }
                     Side::Short => {
-                        if tick.price >= stop_p {
-                            tick.price
+                        // Venta stop (stop loss de protección long o venta por ruptura): se activa si tick.price <= stop_p
+                        if tick.price <= stop_p {
+                            tick.bid.unwrap_or(tick.price)
                         } else {
                             return Ok(None);
                         }
@@ -109,8 +110,8 @@ impl OrderMatcher {
                 let stop_p = order.stop_price.ok_or("Orden Stop Limit sin stop_price")?;
                 let limit_p = order.price.ok_or("Orden Stop Limit sin price")?;
                 let triggered = match order.side {
-                    Side::Long => tick.price <= stop_p,
-                    Side::Short => tick.price >= stop_p,
+                    Side::Long => tick.price >= stop_p,
+                    Side::Short => tick.price <= stop_p,
                 };
                 if !triggered {
                     return Ok(None);

@@ -73,7 +73,8 @@ const STORAGE_KEY = "club_finanzas_group_session";
 export const GroupTradingProvider: React.FC<{
   children: React.ReactNode;
   marketType?: "PORTFOLIO" | "FUTURES";
-}> = ({ children, marketType = "PORTFOLIO" }) => {
+  pollingEnabled?: boolean;
+}> = ({ children, marketType = "PORTFOLIO", pollingEnabled = true }) => {
   const TOURNAMENT_STORAGE_KEY = `club_finanzas_selected_tournament_id_${marketType}`;
 
   const [currentGroup, setCurrentGroup] = useState<GroupAuthSession | null>(null);
@@ -88,6 +89,23 @@ export const GroupTradingProvider: React.FC<{
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isTabVisible, setIsTabVisible] = useState<boolean>(true);
+
+  // Page Visibility API: Detecta cuando el usuario cambia de pestaña para pausar polling
+  useEffect(() => {
+    const handleVisibility = () => {
+      setIsTabVisible(!document.hidden);
+    };
+    if (typeof document !== "undefined") {
+      setIsTabVisible(!document.hidden);
+      document.addEventListener("visibilitychange", handleVisibility);
+    }
+    return () => {
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibility);
+      }
+    };
+  }, []);
 
   // Consulta y sincronización del torneo activo y lista de torneos disponibles por mercado
   const refreshTournament = useCallback(async () => {
@@ -211,14 +229,19 @@ export const GroupTradingProvider: React.FC<{
     }
   }, [currentGroup, selectedTournamentId, tournament?.id]);
 
-  // Actualización periódica en segundo plano cada 10 segundos
+  // Actualización periódica en segundo plano optimizada a 20 segundos
+  // Se suspende inmediatamente si la pestaña está oculta (document.hidden) o si pollingEnabled es false
   useEffect(() => {
-    if (currentGroup) {
+    if (currentGroup && pollingEnabled && isTabVisible) {
       refreshTradingData();
-      const interval = setInterval(refreshTradingData, 10000);
+      const interval = setInterval(() => {
+        if (!document.hidden) {
+          refreshTradingData();
+        }
+      }, 20000);
       return () => clearInterval(interval);
     }
-  }, [currentGroup, refreshTradingData]);
+  }, [currentGroup, pollingEnabled, isTabVisible, refreshTradingData]);
 
   const selectTournament = (tournamentId: string) => {
     setSelectedTournamentId(tournamentId);

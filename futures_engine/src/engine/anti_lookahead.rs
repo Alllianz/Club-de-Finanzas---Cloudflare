@@ -66,6 +66,8 @@ impl TemporalWindow {
 
     /// Filtra rigurosamente una serie histórica de ticks asegurando que NINGÚN registro posterior a $T$ sea visible.
     /// Garantiza CERO Look-Ahead Bias en análisis técnico, backtest o pricing.
+    /// Valida que la serie de entrada sea estrictamente monótona a lo largo de toda la secuencia,
+    /// evitando paradas silenciosas prematuras y detectando anomalías temporales.
     pub fn filter_history_without_bias<'a>(
         &self,
         ticks: &'a [MarketTick],
@@ -74,12 +76,7 @@ impl TemporalWindow {
         let mut prev_time: Option<StrictTimestamp> = None;
 
         for tick in ticks {
-            // Rechazo estricto si está en el futuro
-            if tick.timestamp > self.current_time {
-                break;
-            }
-
-            // Verificación de orden
+            // Verificación estricta de monotonicidad temporal
             if let Some(prev) = prev_time {
                 if tick.timestamp < prev {
                     return Err(LookAheadBiasError::NonMonotonicOrder {
@@ -88,9 +85,12 @@ impl TemporalWindow {
                     });
                 }
             }
-
-            filtered.push(tick);
             prev_time = Some(tick.timestamp);
+
+            // CERO Look-Ahead Bias: rechazar cualquier dato futuro (t > T)
+            if tick.timestamp <= self.current_time {
+                filtered.push(tick);
+            }
         }
 
         Ok(filtered)

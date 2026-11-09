@@ -207,6 +207,8 @@ mod tests {
             60000.0,
             0.0,
             0.0,
+            1.0,
+            0.03,
             StrictTimestamp::from_millis(900),
         );
         positions.insert("BTC-USD".to_string(), pos);
@@ -295,6 +297,8 @@ mod tests {
             1500.0,
             0.0,
             0.0,
+            1.0,
+            0.03,
             StrictTimestamp::from_millis(900),
         );
         positions.insert("AAPL".to_string(), pos);

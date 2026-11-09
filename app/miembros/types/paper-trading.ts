@@ -29,6 +29,8 @@ export interface GroupPortfolio {
   unrealized_pnl: number;
   free_margin: number;
   roe_pct: number;
+  peak_equity?: number;
+  max_drawdown_nominal?: number;
   updated_at: number;
 }
 
@@ -67,6 +69,14 @@ export interface ExecutedTrade {
   timestamp: number;
 }
 
+export type OrderStatus =
+  | "PENDING"
+  | "PENDING_OPEN"
+  | "PARTIALLY_FILLED"
+  | "FILLED"
+  | "CANCELLED"
+  | "REJECTED";
+
 export interface PendingOrder {
   id: string;
   game_id: string;
@@ -81,7 +91,7 @@ export interface PendingOrder {
   limit_price: number | null;
   leverage: number;
   margin_mode: "ISOLATED" | "CROSS";
-  status: "PENDING" | "FILLED" | "CANCELLED" | "REJECTED";
+  status: OrderStatus;
   created_at: number;
   filled_at?: number | null;
 }
@@ -97,8 +107,12 @@ export interface LeaderboardItem {
   totalFees: number;
   equity: number;
   roePct: number;
+  peakEquity?: number;
+  maxDrawdownNominal?: number;
   openPositionsCount: number;
   rank: number;
+  score?: number;
+  rankingRule?: "PORTFOLIO" | "FUTURES" | string;
 }
 
 export interface TournamentSettings {

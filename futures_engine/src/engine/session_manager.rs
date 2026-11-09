@@ -34,7 +34,7 @@ pub struct SessionManager {
     /// Motor de emparejamiento de órdenes.
     pub order_matcher: OrderMatcher,
     /// Contador secuencial de identificadores de trades.
-    trade_counter: u64,
+    pub trade_counter: u64,
 }
 
 impl SessionManager {
@@ -200,30 +200,39 @@ impl SessionManager {
         let contract_opt = self.contracts.get(&symbol).cloned();
 
         if let Some(contract) = contract_opt {
-            // Emparejar órdenes pendientes
+            // Emparejar órdenes pendientes garantizando Price-Time Priority (FIFO)
+            let mut symbol_orders: Vec<(String, Order)> = Vec::new();
             let mut remaining_pending = HashMap::new();
-            let mut trades_to_apply = Vec::new();
 
-            for (id, mut order) in self.pending_orders.drain() {
+            for (id, order) in self.pending_orders.drain() {
                 if order.symbol == symbol {
-                    self.trade_counter += 1;
-                    let trade_id = format!("tr-{}", self.trade_counter);
-                    let leverage = order.leverage;
-                    let margin_mode = order.margin_mode;
-                    let locked_margin = order.locked_margin;
-
-                    match self.order_matcher.match_order(&mut order, &tick, &contract, || trade_id.clone()) {
-                        Ok(Some(trade)) => {
-                            trades_to_apply.push((order.account_id.clone(), trade, leverage, margin_mode, locked_margin));
-                        }
-                        _ => {
-                            if order.is_active() {
-                                remaining_pending.insert(id, order);
-                            }
-                        }
-                    }
+                    symbol_orders.push((id, order));
                 } else {
                     remaining_pending.insert(id, order);
+                }
+            }
+
+            // Prioridad temporal FIFO: procesar órdenes más antiguas primero
+            symbol_orders.sort_by_key(|(_, order)| order.created_at);
+
+            let mut trades_to_apply = Vec::new();
+
+            for (id, mut order) in symbol_orders {
+                self.trade_counter += 1;
+                let trade_id = format!("tr-{}", self.trade_counter);
+                let leverage = order.leverage;
+                let margin_mode = order.margin_mode;
+                let locked_margin = order.locked_margin;
+
+                match self.order_matcher.match_order(&mut order, &tick, &contract, || trade_id.clone()) {
+                    Ok(Some(trade)) => {
+                        trades_to_apply.push((order.account_id.clone(), trade, leverage, margin_mode, locked_margin));
+                    }
+                    _ => {
+                        if order.is_active() {
+                            remaining_pending.insert(id, order);
+                        }
+                    }
                 }
             }
 

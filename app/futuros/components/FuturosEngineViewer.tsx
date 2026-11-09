@@ -5,9 +5,14 @@ import { GroupTradingProvider, useGroupTrading } from "@/app/miembros/context/Gr
 import { FuturosPaperTradingDashboard } from "./FuturosPaperTradingDashboard";
 import { TournamentManagementPanel } from "@/app/miembros/components/TournamentManagementPanel";
 
-function FuturosEngineViewerInner() {
+function FuturosEngineViewerInner({
+  isOpen,
+  setIsOpen,
+}: {
+  isOpen: boolean;
+  setIsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+}) {
   const { currentGroup, login, logout, isActionLoading } = useGroupTrading();
-  const [isOpen, setIsOpen] = useState(true);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeTab, setActiveTab] = useState<"paper" | "tournament">("paper");
 
@@ -284,9 +289,11 @@ function FuturosEngineViewerInner() {
 }
 
 export const FuturosEngineViewer: React.FC = () => {
+  const [isOpen, setIsOpen] = useState(true);
+
   return (
-    <GroupTradingProvider marketType="FUTURES">
-      <FuturosEngineViewerInner />
+    <GroupTradingProvider marketType="FUTURES" pollingEnabled={isOpen}>
+      <FuturosEngineViewerInner isOpen={isOpen} setIsOpen={setIsOpen} />
     </GroupTradingProvider>
   );
 };

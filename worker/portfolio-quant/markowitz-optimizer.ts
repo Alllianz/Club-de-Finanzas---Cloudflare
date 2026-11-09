@@ -269,7 +269,11 @@ export async function ejecutarOptimizacionCartera(payload: OptimizarRequest): Pr
   const nVelas = payload.n_velas || 2520;
   const cclRef = payload.ccl_ref || 1250.0;
   const rfRate = payload.rf_rate || 0.04;
-  const minBound = payload.min_bound || 0.05;
+  let minBound = payload.min_bound || 0.05;
+  // Validación anti-desborde de simplex: si la suma de mínimos excede el 90%, ajustar dinámicamente
+  if (userTickers.length * minBound > 0.90) {
+    minBound = Math.max(0.01, 0.90 / userTickers.length);
+  }
 
   // Asegurar SPY para calcular Betas CAPM
   const tickersToFetch = [...userTickers];

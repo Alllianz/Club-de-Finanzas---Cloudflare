@@ -99,10 +99,10 @@ export async function getReservedSellQuantity(
   const query = excludeOrderId
     ? `SELECT SUM(quantity - filled_quantity) as total_reserved 
        FROM paper_orders 
-       WHERE game_id = ? AND user_id = ? AND symbol = ? AND order_side = 'SELL' AND status = 'PENDING' AND id != ?`
+       WHERE game_id = ? AND user_id = ? AND symbol = ? AND order_side = 'SELL' AND status IN ('PENDING', 'PENDING_OPEN', 'PARTIALLY_FILLED') AND id != ?`
     : `SELECT SUM(quantity - filled_quantity) as total_reserved 
        FROM paper_orders 
-       WHERE game_id = ? AND user_id = ? AND symbol = ? AND order_side = 'SELL' AND status = 'PENDING'`;
+       WHERE game_id = ? AND user_id = ? AND symbol = ? AND order_side = 'SELL' AND status IN ('PENDING', 'PENDING_OPEN', 'PARTIALLY_FILLED')`;
 
   const stmt = excludeOrderId
     ? db.prepare(query).bind(gameId, groupId, symbol, excludeOrderId)
@@ -367,6 +367,69 @@ export interface CreatePaperOrderInput {
 }
 
 /**
+ * Verifica la solvencia de efectivo disponible para una compra,
+ * computando el capital comprometido en órdenes pendientes (PENDING, PENDING_OPEN, PARTIALLY_FILLED)
+ */
+async function checkBuySolvency(
+  db: D1Database,
+  gameId: string,
+  groupId: string,
+  initialCap: number,
+  assetType: "Crypto" | "Stock" | "Futures",
+  quantity: number,
+  effectivePrice: number,
+  leverage: number,
+  actionLabel: string
+): Promise<void> {
+  const notional = effectivePrice * quantity;
+  const estFee = computeOrderFee(assetType, quantity, notional);
+  const requiredMargin = notional / leverage;
+  const totalRequired = requiredMargin + estFee;
+
+  const port = await ensurePortfolioSeed(db, groupId, gameId, initialCap);
+
+  const pendingBuyOrdersRes = await db
+    .prepare(
+      `SELECT symbol, asset_type, limit_price, quantity, filled_quantity, leverage 
+       FROM paper_orders 
+       WHERE game_id = ? AND user_id = ? AND order_side = 'BUY' AND status IN ('PENDING', 'PENDING_OPEN', 'PARTIALLY_FILLED')`
+    )
+    .bind(gameId, groupId)
+    .all<{
+      symbol: string;
+      asset_type: string;
+      limit_price: number | null;
+      quantity: number;
+      filled_quantity: number | null;
+      leverage: number;
+    }>();
+
+  let committedPendingCapital = 0;
+  if (pendingBuyOrdersRes.results && pendingBuyOrdersRes.results.length > 0) {
+    for (const pOrd of pendingBuyOrdersRes.results) {
+      const pQty = Math.max(0, pOrd.quantity - (pOrd.filled_quantity || 0));
+      const pPrice = pOrd.limit_price || effectivePrice;
+      const pNotional = pPrice * pQty;
+      const pLev = Math.max(1, pOrd.leverage || 1);
+      const pMargin = pNotional / pLev;
+      const pFee = computeOrderFee(
+        (pOrd.asset_type as "Crypto" | "Stock" | "Futures") || assetType,
+        pQty,
+        pNotional
+      );
+      committedPendingCapital += pMargin + pFee;
+    }
+  }
+
+  const availableCash = port.cash_balance - committedPendingCapital;
+  if (availableCash < totalRequired) {
+    throw new Error(
+      `Efectivo insuficiente para ${actionLabel}: Se requieren $${totalRequired.toFixed(2)} ($${requiredMargin.toFixed(2)} de margen + $${estFee.toFixed(2)} de comisión) a precio de referencia $${effectivePrice.toFixed(2)}. Saldo de cuenta: $${port.cash_balance.toFixed(2)}, comprometido en órdenes pendientes: $${committedPendingCapital.toFixed(2)}, efectivo libre disponible: $${Math.max(0, availableCash).toFixed(2)}.`
+    );
+  }
+}
+
+/**
  * Punto de entrada principal para creación y ejecución de órdenes (Market y Limit)
  * con cumplimiento de Solo Long y soporte para órdenes y ventas parciales
  */
@@ -472,7 +535,118 @@ export async function createPaperOrder(
   const nowMs = Date.now();
   const orderId = `ord_${nowMs}_${Math.random().toString(36).substring(2, 7)}`;
 
-  // Verificar si la orden es de mercado o si es límite ejecutable inmediatamente
+  const isStockMarketClosed = quote.asset_type === "Stock" && !quote.is_market_open;
+
+  // Si el mercado bursátil está cerrado para acciones:
+  if (isStockMarketClosed) {
+    if (orderType === "MARKET") {
+      // 1. Encolado de orden de mercado fuera de hora -> PENDING_OPEN
+      // Cero look-ahead bias: NO se ejecuta con precio anterior, se programa para la apertura (09:30 ET)
+      if (orderSide === "BUY") {
+        await checkBuySolvency(
+          db,
+          gameId,
+          groupId,
+          initialCap,
+          quote.asset_type,
+          quantity,
+          quote.price,
+          leverage,
+          "programar orden para la apertura"
+        );
+      }
+
+      await db
+        .prepare(
+          `INSERT INTO paper_orders (
+             id, game_id, user_id, symbol, asset_type, order_side,
+             position_side, order_type, quantity, filled_quantity, limit_price,
+             leverage, margin_mode, status, created_at, filled_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, NULL, ?, ?, 'PENDING_OPEN', ?, NULL)`
+        )
+        .bind(
+          orderId,
+          gameId,
+          groupId,
+          symbol,
+          quote.asset_type,
+          orderSide,
+          positionSide,
+          orderType,
+          quantity,
+          leverage,
+          marginMode,
+          nowMs
+        )
+        .run();
+
+      return {
+        success: true,
+        orderId,
+        isFilled: false,
+        orderType,
+        orderSide,
+        limitPrice: null,
+        quantity,
+        status: "PENDING_OPEN",
+        message: "Orden programada con éxito para la apertura de mercado (09:30 ET).",
+      };
+    } else {
+      // 2. Orden límite fuera de hora -> PENDING
+      if (orderSide === "BUY") {
+        await checkBuySolvency(
+          db,
+          gameId,
+          groupId,
+          initialCap,
+          quote.asset_type,
+          quantity,
+          limitPrice || quote.price,
+          leverage,
+          "colocar orden límite fuera de hora"
+        );
+      }
+
+      await db
+        .prepare(
+          `INSERT INTO paper_orders (
+             id, game_id, user_id, symbol, asset_type, order_side,
+             position_side, order_type, quantity, filled_quantity, limit_price,
+             leverage, margin_mode, status, created_at, filled_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?, 'PENDING', ?, NULL)`
+        )
+        .bind(
+          orderId,
+          gameId,
+          groupId,
+          symbol,
+          quote.asset_type,
+          orderSide,
+          positionSide,
+          orderType,
+          quantity,
+          limitPrice || null,
+          leverage,
+          marginMode,
+          nowMs
+        )
+        .run();
+
+      return {
+        success: true,
+        orderId,
+        isFilled: false,
+        orderType,
+        orderSide,
+        limitPrice,
+        quantity,
+        status: "PENDING",
+        message: "Orden límite registrada en espera de condiciones de mercado.",
+      };
+    }
+  }
+
+  // Verificar si la orden es de mercado o si es límite ejecutable inmediatamente (Mercado Abierto)
   let canFillImmediately = false;
   let executionPrice = quote.price;
 
@@ -613,19 +787,18 @@ export async function createPaperOrder(
   }
 
   // Caso 2: Orden Límite No Ejecutable de Inmediato -> Estado PENDING
-  // Si es BUY, verificar solvencia de efectivo para la orden límite
   if (orderSide === "BUY") {
-    const notional = (limitPrice || quote.price) * quantity;
-    const estFee = computeOrderFee(quote.asset_type, quantity, notional);
-    const requiredMargin = notional / leverage;
-    const totalRequired = requiredMargin + estFee;
-
-    const port = await ensurePortfolioSeed(db, groupId, gameId, initialCap);
-    if (port.cash_balance < totalRequired) {
-      throw new Error(
-        `Efectivo insuficiente para colocar orden límite: Se requieren $${totalRequired.toFixed(2)} ($${requiredMargin.toFixed(2)} de margen + $${estFee.toFixed(2)} de comisión) a precio límite $${limitPrice?.toFixed(2)} y el grupo dispone de $${port.cash_balance.toFixed(2)}.`
-      );
-    }
+    await checkBuySolvency(
+      db,
+      gameId,
+      groupId,
+      initialCap,
+      quote.asset_type,
+      quantity,
+      limitPrice || quote.price,
+      leverage,
+      "colocar orden límite"
+    );
   }
 
   // Insertar orden PENDING
@@ -698,7 +871,7 @@ export async function getPaperOrders(
 }
 
 /**
- * Cancela una orden límite en estado PENDING
+ * Cancela una orden límite o encolada en estado PENDING o PENDING_OPEN
  */
 export async function cancelPaperOrder(
   db: D1Database,
@@ -719,7 +892,7 @@ export async function cancelPaperOrder(
     throw new Error("La orden no existe o no pertenece a tu grupo.");
   }
 
-  if (order.status !== "PENDING") {
+  if (order.status !== "PENDING" && order.status !== "PENDING_OPEN") {
     throw new Error(`La orden no se puede cancelar porque su estado actual es ${order.status}.`);
   }
 
@@ -730,14 +903,14 @@ export async function cancelPaperOrder(
 
   return {
     success: true,
-    message: `Orden límite ${order.id} en ${order.symbol} cancelada correctamente.`,
+    message: `Orden ${order.order_type === "MARKET" ? "programada" : "límite"} ${order.id} en ${order.symbol} cancelada correctamente.`,
   };
 }
 
 /**
  * Motor de Emparejamiento en Vivo para Órdenes Pendientes
- * Verifica los ticks actuales de mercado para todas las órdenes PENDING del grupo
- * respetando estrictamente Anti Look-Ahead Bias (t <= T)
+ * Verifica los ticks actuales de mercado para todas las órdenes PENDING, PENDING_OPEN y PARTIALLY_FILLED
+ * respetando estrictamente Cero Look-Ahead Bias (t_ejecucion >= t_apertura)
  */
 export async function matchPendingOrders(
   db: D1Database,
@@ -746,20 +919,26 @@ export async function matchPendingOrders(
 ): Promise<{ matchedCount: number; ordersFilled: string[] }> {
   await ensurePaperOrdersTable(db);
   const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
-  const gameId = tournament?.id || targetGameId || DEFAULT_GAME_ID;
 
-  // Si el torneo no está en período activo, no se procesan emparejamientos
-  const dateCheck = checkTournamentDateRange(tournament);
-  if (!dateCheck.allowed) {
-    return { matchedCount: 0, ordersFilled: [] };
+  // Si se especificó un targetGameId y el torneo no está en período activo, no se procesa
+  if (targetGameId) {
+    const dateCheck = checkTournamentDateRange(tournament);
+    if (!dateCheck.allowed) {
+      return { matchedCount: 0, ordersFilled: [] };
+    }
   }
 
-  let query = "SELECT * FROM paper_orders WHERE game_id = ? AND status = 'PENDING'";
-  const params: unknown[] = [gameId];
+  let query = "SELECT * FROM paper_orders WHERE status IN ('PENDING', 'PENDING_OPEN', 'PARTIALLY_FILLED')";
+  const params: unknown[] = [];
+  if (targetGameId) {
+    query += " AND game_id = ?";
+    params.push(targetGameId);
+  }
   if (groupId) {
     query += " AND user_id = ?";
     params.push(groupId);
   }
+  query += " ORDER BY created_at ASC";
 
   const pending = await db.prepare(query).bind(...params).all<OrderRecord>();
   const orders = pending.results || [];
@@ -770,39 +949,69 @@ export async function matchPendingOrders(
 
   let matchedCount = 0;
   const ordersFilled: string[] = [];
-  const initialCap = tournament?.initial_capital || INITIAL_CAPITAL;
-  const isSoloLong = tournament ? !tournament.allow_short : false;
+  const tournamentCache = new Map<string, TournamentRecord | null>();
 
   for (const ord of orders) {
     try {
-      if (!ord.limit_price || ord.limit_price <= 0) continue;
+      // Obtener torneo para verificar reglas y fechas
+      let ordTournament = tournament;
+      if (ord.game_id !== tournament?.id) {
+        if (!tournamentCache.has(ord.game_id)) {
+          tournamentCache.set(ord.game_id, await getTournamentById(db, ord.game_id));
+        }
+        ordTournament = tournamentCache.get(ord.game_id) || null;
+      }
 
-      const quote = await fetchLiveMarketQuote(ord.symbol);
+      const dateCheck = checkTournamentDateRange(ordTournament);
+      if (!dateCheck.allowed) {
+        continue;
+      }
+
       const nowMs = Date.now();
-
       // Zero Look-Ahead Bias: comprobación estricta de tiempo monotónico
       if (ord.created_at > nowMs) {
+        continue;
+      }
+
+      const quote = await fetchLiveMarketQuote(ord.symbol);
+
+      // Cero Look-Ahead Bias: si es acción bursátil y el mercado está cerrado, omitir estrictamente (t_ejec >= t_apertura)
+      if (quote.asset_type === "Stock" && !quote.is_market_open) {
         continue;
       }
 
       let isTriggered = false;
       let fillPrice = quote.price;
 
-      if (ord.order_side === "BUY") {
-        // Compra límite: tick.price <= limit_price
-        if (quote.price <= ord.limit_price) {
-          isTriggered = true;
-          fillPrice = Math.min(quote.price, ord.limit_price);
-        }
-      } else {
-        // Venta límite: tick.price >= limit_price
-        if (quote.price >= ord.limit_price) {
-          isTriggered = true;
-          fillPrice = Math.max(quote.price, ord.limit_price);
+      if (ord.status === "PENDING_OPEN") {
+        // Orden fuera de hora encolada para apertura: se dispara con el primer precio disponible en vivo de apertura
+        isTriggered = true;
+        fillPrice = quote.price;
+      } else if (ord.status === "PENDING" || ord.status === "PARTIALLY_FILLED") {
+        if (!ord.limit_price || ord.limit_price <= 0) continue;
+
+        if (ord.order_side === "BUY") {
+          // Compra límite: tick.price <= limit_price
+          if (quote.price <= ord.limit_price) {
+            isTriggered = true;
+            fillPrice = Math.min(quote.price, ord.limit_price);
+          }
+        } else {
+          // Venta límite: tick.price >= limit_price
+          if (quote.price >= ord.limit_price) {
+            isTriggered = true;
+            fillPrice = Math.max(quote.price, ord.limit_price);
+          }
         }
       }
 
       if (!isTriggered) continue;
+
+      const remainingQty = ord.quantity - (ord.filled_quantity || 0);
+      if (remainingQty <= 0) continue;
+
+      const isSoloLong = ordTournament ? !ordTournament.allow_short : false;
+      const initialCap = ordTournament?.initial_capital || INITIAL_CAPITAL;
 
       // Ejecutar la orden disparada
       if (ord.order_side === "SELL" && isSoloLong) {
@@ -816,18 +1025,32 @@ export async function matchPendingOrders(
           continue;
         }
 
-        const closeQty = Math.min(ord.quantity, longPos.quantity);
+        const closeQty = Math.min(remainingQty, longPos.quantity);
         await executeClosePositionOperation(db, longPos, closeQty, fillPrice, nowMs, ord.id);
 
-        await db
-          .prepare("UPDATE paper_orders SET status = 'FILLED', filled_quantity = ?, filled_at = ? WHERE id = ?")
-          .bind(closeQty, nowMs, ord.id)
-          .run();
+        const totalFilled = (ord.filled_quantity || 0) + closeQty;
+        if (totalFilled >= ord.quantity - 1e-9) {
+          // Cierre total
+          await db
+            .prepare(
+              "UPDATE paper_orders SET status = 'FILLED', filled_quantity = ?, filled_at = ? WHERE id = ?"
+            )
+            .bind(ord.quantity, nowMs, ord.id)
+            .run();
+        } else {
+          // Cierre parcial
+          await db
+            .prepare(
+              "UPDATE paper_orders SET status = 'PARTIALLY_FILLED', filled_quantity = ?, filled_at = ? WHERE id = ?"
+            )
+            .bind(totalFilled, nowMs, ord.id)
+            .run();
+        }
 
         matchedCount++;
         ordersFilled.push(ord.id);
       } else {
-        // Ejecución de compra o venta normal
+        // Ejecución de compra o apertura normal
         await executeOpenPositionOperation(
           db,
           ord.game_id,
@@ -836,7 +1059,7 @@ export async function matchPendingOrders(
           quote.asset_type,
           ord.position_side,
           ord.order_side,
-          ord.quantity,
+          remainingQty,
           fillPrice,
           ord.leverage,
           ord.margin_mode,
@@ -852,8 +1075,11 @@ export async function matchPendingOrders(
         matchedCount++;
         ordersFilled.push(ord.id);
       }
-    } catch {
-      // Continuar con las siguientes órdenes si una falla puntualmente por fondos
+    } catch (err) {
+      console.warn(
+        `[LimitOrderEngine] Advertencia al procesar orden ${ord.id} (${ord.symbol}):`,
+        err instanceof Error ? err.message : err
+      );
     }
   }
 

@@ -32,6 +32,10 @@ pub struct Position {
     pub liquidation_price: f64,
     /// Precio de quiebra (donde el colateral cae a cero).
     pub bankruptcy_price: f64,
+    /// Multiplicador del contrato (tamaño de punto o unidades por contrato).
+    pub multiplier: f64,
+    /// Tasa de margen de mantenimiento requerida (MMR).
+    pub maintenance_margin_rate: f64,
     /// Estado de la posición (Open, Closed, Liquidated).
     pub status: PositionStatus,
     /// Timestamp de apertura de la posición.
@@ -54,6 +58,8 @@ impl Position {
         isolated_margin: f64,
         liquidation_price: f64,
         bankruptcy_price: f64,
+        multiplier: f64,
+        maintenance_margin_rate: f64,
         timestamp: StrictTimestamp,
     ) -> Self {
         Self {
@@ -71,9 +77,20 @@ impl Position {
             realized_pnl: 0.0,
             liquidation_price,
             bankruptcy_price,
+            multiplier,
+            maintenance_margin_rate,
             status: PositionStatus::Open,
             opened_at: timestamp,
             updated_at: timestamp,
+        }
+    }
+
+    /// Calcula el margen de mantenimiento requerido para esta posición según sus propios parámetros.
+    pub fn calculate_maintenance_margin(&self) -> f64 {
+        if self.quantity > 0.0 && self.current_price > 0.0 {
+            self.quantity * self.current_price * self.multiplier * self.maintenance_margin_rate
+        } else {
+            0.0
         }
     }
 

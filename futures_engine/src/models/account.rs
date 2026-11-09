@@ -26,6 +26,11 @@ pub struct Account {
     pub free_margin: f64,
     /// Nivel de margen porcentual: (Equity / Initial Margin) * 100%.
     pub margin_level_pct: f64,
+    /// Nivel máximo histórico de equidad (High-Water Mark).
+    pub peak_equity: f64,
+    /// Máximo Drawdown Nominal histórico acumulado ($ USD):
+    /// MaxDD_nominal = max(Peak - Equity). Fórmula institucional de Sylva / Astro EVO.
+    pub max_drawdown_nominal: f64,
     /// Moneda de denominación de la cuenta.
     pub currency: Currency,
 }
@@ -45,11 +50,13 @@ impl Account {
             equity: initial_cash,
             free_margin: initial_cash,
             margin_level_pct: 100.0,
+            peak_equity: initial_cash,
+            max_drawdown_nominal: 0.0,
             currency,
         }
     }
 
-    /// Recalcula el patrimonio neto y el margen libre en base a posiciones y órdenes.
+    /// Recalcula el patrimonio neto, el margen libre y el Máximo Drawdown Nominal (estándar Sylva / Astro EVO).
     pub fn recalculate_totals(&mut self) {
         self.equity = self.cash_balance + self.unrealized_pnl;
         let total_committed = self.initial_margin + self.locked_margin;
@@ -59,6 +66,15 @@ impl Account {
         } else {
             100.0
         };
+
+        // Actualización estricta del High-Water Mark y Max Drawdown Nominal
+        if self.equity > self.peak_equity {
+            self.peak_equity = self.equity;
+        }
+        let current_dd = (self.peak_equity - self.equity).max(0.0);
+        if current_dd > self.max_drawdown_nominal {
+            self.max_drawdown_nominal = current_dd;
+        }
     }
 
     /// Intenta reservar margen para una nueva orden. Devuelve Err si no hay margen libre suficiente.

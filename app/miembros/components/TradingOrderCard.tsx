@@ -28,6 +28,8 @@ export const TradingOrderCard: React.FC<{
   const [orderSide, setOrderSide] = useState<"BUY" | "SELL">("BUY");
   const [limitPrice, setLimitPrice] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("0.1");
+  const [sizingMode, setSizingMode] = useState<"UNITS" | "USD">("USD");
+  const [amountUsd, setAmountUsd] = useState<string>("1000");
   const [leverage, setLeverage] = useState<number>(1);
   const [marginMode, setMarginMode] = useState<"ISOLATED" | "CROSS">("ISOLATED");
 
@@ -52,14 +54,14 @@ export const TradingOrderCard: React.FC<{
   );
   const ownedQty = currentLongPos?.quantity || 0;
 
-  // Unidades comprometidas en órdenes límite de venta pendientes
+  // Unidades comprometidas en órdenes de venta pendientes o encoladas
   const reservedSellQty =
     pendingOrders
       ?.filter(
         (o) =>
           o.symbol.toUpperCase() === symbol.toUpperCase() &&
           o.order_side === "SELL" &&
-          o.status === "PENDING"
+          (o.status === "PENDING" || o.status === "PENDING_OPEN" || o.status === "PARTIALLY_FILLED")
       )
       .reduce((acc, o) => acc + (o.quantity - o.filled_quantity), 0) || 0;
 
@@ -74,28 +76,101 @@ export const TradingOrderCard: React.FC<{
     }
   }, [tournament, leverage]);
 
+  // Cálculos en tiempo real
+  const currentPrice = quote?.price || 0;
+  const limitPriceNum = parseFloat(limitPrice) || 0;
+  const effectivePrice = orderType === "LIMIT" && limitPriceNum > 0 ? limitPriceNum : currentPrice;
+
+  // Sincronización de cantidad y monto en dólares
+  const handleAmountUsdChange = (valStr: string) => {
+    setAmountUsd(valStr);
+    const valNum = parseFloat(valStr) || 0;
+    if (effectivePrice > 0 && valNum > 0) {
+      const calculatedQty = valNum / effectivePrice;
+      const precision = quote?.asset_type === "Crypto" ? 4 : 2;
+      setQuantity(calculatedQty.toFixed(precision));
+    } else if (!valStr) {
+      setQuantity("");
+    }
+  };
+
+  const handleQuantityChange = (valStr: string) => {
+    setQuantity(valStr);
+    const valNum = parseFloat(valStr) || 0;
+    if (effectivePrice > 0 && valNum > 0) {
+      const calculatedUsd = valNum * effectivePrice;
+      setAmountUsd(calculatedUsd.toFixed(2));
+    } else if (!valStr) {
+      setAmountUsd("");
+    }
+  };
+
+  const handleSelectSizingMode = (mode: "UNITS" | "USD") => {
+    setSizingMode(mode);
+    if (mode === "USD") {
+      const q = parseFloat(quantity) || 0;
+      if (effectivePrice > 0 && q > 0) {
+        setAmountUsd((q * effectivePrice).toFixed(2));
+      } else if (!amountUsd) {
+        setAmountUsd("1000");
+        if (effectivePrice > 0) {
+          const precision = quote?.asset_type === "Crypto" ? 4 : 2;
+          setQuantity((1000 / effectivePrice).toFixed(precision));
+        }
+      }
+    } else {
+      const u = parseFloat(amountUsd) || 0;
+      if (effectivePrice > 0 && u > 0) {
+        const precision = quote?.asset_type === "Crypto" ? 4 : 2;
+        setQuantity((u / effectivePrice).toFixed(precision));
+      }
+    }
+  };
+
+  // Mantener sincronizado si cambia el precio efectivo y el usuario está en modo USD
+  useEffect(() => {
+    if (sizingMode === "USD" && effectivePrice > 0) {
+      const u = parseFloat(amountUsd) || 0;
+      if (u > 0) {
+        const precision = quote?.asset_type === "Crypto" ? 4 : 2;
+        setQuantity((u / effectivePrice).toFixed(precision));
+      }
+    }
+  }, [effectivePrice, sizingMode]);
+
   // Si cambia el quote y limitPrice está vacío o el ticker cambió, auto-asignar cantidad inteligente
   const lastNormalizedSymbol = useRef<string>("");
   useEffect(() => {
     if (quote && lastNormalizedSymbol.current !== quote.symbol) {
       lastNormalizedSymbol.current = quote.symbol;
-      if (quote.asset_type === "Crypto") {
-        if (quote.price > 10000) setQuantity("0.05");
-        else setQuantity("1.0");
+      if (sizingMode === "USD") {
+        if (!amountUsd || parseFloat(amountUsd) <= 0) {
+          setAmountUsd("1000");
+        }
+        if (quote.price > 0) {
+          const u = parseFloat(amountUsd) || 1000;
+          const precision = quote.asset_type === "Crypto" ? 4 : 2;
+          setQuantity((u / quote.price).toFixed(precision));
+        }
       } else {
-        setQuantity("10");
+        if (quote.asset_type === "Crypto") {
+          if (quote.price > 10000) setQuantity("0.05");
+          else setQuantity("1.0");
+        } else {
+          setQuantity("10");
+        }
+        if (quote.price > 0) {
+          const q = parseFloat(quantity) || 1;
+          setAmountUsd((q * quote.price).toFixed(2));
+        }
       }
       if (orderType === "LIMIT" && !limitPrice) {
         setLimitPrice(quote.price.toString());
       }
     }
-  }, [quote, orderType, limitPrice]);
+  }, [quote, orderType, limitPrice, sizingMode]);
 
-  // Cálculos en tiempo real
   const qtyNum = parseFloat(quantity) || 0;
-  const currentPrice = quote?.price || 0;
-  const limitPriceNum = parseFloat(limitPrice) || 0;
-  const effectivePrice = orderType === "LIMIT" && limitPriceNum > 0 ? limitPriceNum : currentPrice;
   const notional = effectivePrice * qtyNum;
   const initialMargin = leverage > 0 ? notional / leverage : notional;
 
@@ -123,6 +198,15 @@ export const TradingOrderCard: React.FC<{
     e.preventDefault();
     setOrderFeedback(null);
 
+    const cleanSymbol = symbol.trim().toUpperCase();
+    if (cleanSymbol.length < 2) {
+      setOrderFeedback({
+        type: "error",
+        text: "Debés ingresar un ticker válido de al menos 2 caracteres.",
+      });
+      return;
+    }
+
     if (!dateStatus.allowed) {
       setOrderFeedback({
         type: "error",
@@ -131,21 +215,27 @@ export const TradingOrderCard: React.FC<{
       return;
     }
 
-    if (qtyNum <= 0) {
+    let finalQty = qtyNum;
+    if (sizingMode === "USD") {
+      const u = parseFloat(amountUsd) || 0;
+      if (u <= 0) {
+        setOrderFeedback({ type: "error", text: "El monto en dólares a invertir debe ser mayor a 0." });
+        return;
+      }
+      if (effectivePrice <= 0) {
+        setOrderFeedback({ type: "error", text: "Esperando cotización de mercado para calcular la cantidad." });
+        return;
+      }
+      finalQty = u / effectivePrice;
+    }
+
+    if (finalQty <= 0) {
       setOrderFeedback({ type: "error", text: "La cantidad ingresada debe ser mayor a 0." });
       return;
     }
 
     if (orderType === "LIMIT" && (!limitPriceNum || limitPriceNum <= 0)) {
       setOrderFeedback({ type: "error", text: "Debés ingresar un precio límite válido mayor a 0." });
-      return;
-    }
-
-    if (quote?.asset_type === "Stock" && !quote.is_market_open) {
-      setOrderFeedback({
-        type: "error",
-        text: `Mercado bursátil cerrado para ${quote.symbol}. ${quote.status_message}`,
-      });
       return;
     }
 
@@ -159,10 +249,10 @@ export const TradingOrderCard: React.FC<{
         return;
       }
 
-      if (qtyNum > availableToSell + 1e-9) {
+      if (finalQty > availableToSell + 1e-9) {
         setOrderFeedback({
           type: "error",
-          text: `La cantidad a vender (${qtyNum}) excede tu tenencia disponible (${availableToSell.toFixed(4)} ${symbol}${reservedSellQty > 0 ? ` [${reservedSellQty.toFixed(4)} reservadas en órdenes pendientes]` : ""}).`,
+          text: `La cantidad a vender (${finalQty.toFixed(4)}) excede tu tenencia disponible (${availableToSell.toFixed(4)} ${symbol}${reservedSellQty > 0 ? ` [${reservedSellQty.toFixed(4)} reservadas en órdenes pendientes]` : ""}).`,
         });
         return;
       }
@@ -183,7 +273,7 @@ export const TradingOrderCard: React.FC<{
     const res = await placeOrder(
       symbol,
       orderSide,
-      qtyNum,
+      finalQty,
       leverage,
       marginMode,
       orderType,
@@ -352,7 +442,11 @@ export const TradingOrderCard: React.FC<{
         </div>
 
         {/* Resumen de Cotización en Vivo */}
-        {quoteLoading && !quote ? (
+        {symbol.trim().length > 0 && symbol.trim().length < 2 ? (
+          <div className="rounded-lg border border-[#e5e7eb] bg-[#fafaf9] p-3 text-center text-xs text-[#64748b]">
+            Ingresá al menos 2 caracteres para consultar la cotización...
+          </div>
+        ) : quoteLoading && !quote && symbol.trim().length >= 2 ? (
           <div className="rounded-lg border border-[#e5e7eb] bg-[#fafaf9] p-3 text-center text-xs text-[#64748b]">
             Consultando cotización de mercado...
           </div>
@@ -425,6 +519,19 @@ export const TradingOrderCard: React.FC<{
             {quoteError}
           </div>
         ) : null}
+
+        {/* Aviso Informativo Elegante para Mercado Bursátil Cerrado */}
+        {quote?.asset_type === "Stock" && !quote.is_market_open && (
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50/80 p-3.5 text-xs text-indigo-900 flex items-start gap-2.5 shadow-xs">
+            <span className="text-base leading-none">🌙</span>
+            <div className="space-y-0.5">
+              <p className="font-bold text-indigo-950">Mercado bursátil cerrado</p>
+              <p className="text-[11px] text-indigo-800 leading-relaxed">
+                Tu orden se programará para ejecutarse en la apertura de Wall Street (09:30 ET).
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Sentido de la Operación: COMPRA vs VENTA */}
         <div>
@@ -556,53 +663,171 @@ export const TradingOrderCard: React.FC<{
           </div>
         )}
 
-        {/* Cantidad & Modo de Margen */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
-              Cantidad (Unidades)
+        {/* Modalidad de Inversión: Por Dólares ($ USD) vs Por Contratos / Unidades */}
+        <div className="rounded-xl border border-[#cbd5e1] bg-[#f8fafc] p-3.5 space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
+              Modalidad de Inversión
             </label>
-            <input
-              type="number"
-              step="any"
-              min="0.0001"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              required
-              className="mt-1.5 w-full rounded-md border border-[#cbd5e1] bg-white px-3.5 py-2 font-mono text-sm text-[#0b1727] focus:border-[#0b1727] focus:outline-none"
-            />
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-white text-[#1e3a8a] border-blue-200">
+              {sizingMode === "USD" ? "💵 Selección en Dólares ($ USD)" : "📊 Selección en Contratos / Unidades"}
+            </span>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
-              Modo de Margen
-            </label>
-            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-              <button
-                type="button"
-                onClick={() => setMarginMode("ISOLATED")}
-                className={`rounded-md py-1.5 px-2 text-[11px] font-bold transition-all flex flex-col items-center justify-center ${
-                  marginMode === "ISOLATED"
-                    ? "bg-[#0b1727] text-white shadow-sm ring-2 ring-[#1e3a8a]"
-                    : "border border-[#cbd5e1] bg-white text-[#475569] hover:bg-[#f8fafc]"
-                }`}
-              >
-                <span>Aislado</span>
-                <span className="text-[9px] opacity-75 font-normal">ISOLATED</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setMarginMode("CROSS")}
-                className={`rounded-md py-1.5 px-2 text-[11px] font-bold transition-all flex flex-col items-center justify-center ${
-                  marginMode === "CROSS"
-                    ? "bg-[#0b1727] text-white shadow-sm ring-2 ring-[#1e3a8a]"
-                    : "border border-[#cbd5e1] bg-white text-[#475569] hover:bg-[#f8fafc]"
-                }`}
-              >
-                <span>Cruzado</span>
-                <span className="text-[9px] opacity-75 font-normal">CROSS</span>
-              </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => handleSelectSizingMode("USD")}
+              className={`rounded-lg py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                sizingMode === "USD"
+                  ? "bg-[#1e3a8a] text-white shadow-xs ring-2 ring-[#93c5fd]"
+                  : "bg-white border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]"
+              }`}
+            >
+              <span>💵 Invertir en Dólares ($ USD)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectSizingMode("UNITS")}
+              className={`rounded-lg py-2 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                sizingMode === "UNITS"
+                  ? "bg-[#0b1727] text-white shadow-xs ring-2 ring-slate-400"
+                  : "bg-white border border-[#cbd5e1] text-[#475569] hover:bg-[#f1f5f9]"
+              }`}
+            >
+              <span>📊 Contratos / Unidades</span>
+            </button>
+          </div>
+
+          {/* Campo de Entrada según Modalidad */}
+          {sizingMode === "USD" ? (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#0b1727]">
+                  ¿Cuánto querés invertir en Dólares? ($ USD)
+                </label>
+                {effectivePrice > 0 && (
+                  <span className="text-[10px] font-mono text-[#64748b]">
+                    1 {customTickers ? "contrato" : "unidad"} = ${effectivePrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USD
+                  </span>
+                )}
+              </div>
+
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono font-bold text-[#64748b] text-base">
+                  $
+                </span>
+                <input
+                  type="number"
+                  step="any"
+                  min="1"
+                  value={amountUsd}
+                  onChange={(e) => handleAmountUsdChange(e.target.value)}
+                  placeholder="ej: 1000.00"
+                  required={sizingMode === "USD"}
+                  className="w-full rounded-md border border-[#93c5fd] bg-white pl-8 pr-3.5 py-2.5 font-mono text-base font-bold text-[#0b1727] focus:border-[#1e3a8a] focus:outline-none focus:ring-1 focus:ring-[#1e3a8a]"
+                />
+              </div>
+
+              {/* Botones de Porcentaje Rápido del Saldo */}
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-[#64748b]">
+                  {orderSide === "BUY" ? "Del Cash:" : "De Tenencia:"}
+                </span>
+                {[0.25, 0.5, 0.75, 1.0].map((ratio) => (
+                  <button
+                    key={ratio}
+                    type="button"
+                    onClick={() => {
+                      if (orderSide === "BUY") {
+                        const avail = portfolio?.cash_balance ?? 10000;
+                        const val = avail * ratio;
+                        handleAmountUsdChange(val >= 1 ? val.toFixed(2) : val.toFixed(4));
+                      } else {
+                        const totalVal = availableToSell * effectivePrice;
+                        const val = totalVal * ratio;
+                        handleAmountUsdChange(val >= 1 ? val.toFixed(2) : val.toFixed(4));
+                      }
+                    }}
+                    className="flex-1 rounded border border-blue-200 bg-white py-1 text-[10px] font-bold text-[#1e3a8a] hover:bg-blue-50 transition"
+                  >
+                    {ratio === 1.0 ? "100% Máx" : `${ratio * 100}%`}
+                  </button>
+                ))}
+              </div>
+
+              {/* Conversión y Contratos Calculados */}
+              <div className="rounded-lg bg-blue-50/80 border border-blue-200 p-2.5 text-xs text-[#1e3a8a] flex items-center justify-between">
+                <span>Contratos / Unidades calculados:</span>
+                <span className="font-mono font-bold text-sm">
+                  {qtyNum.toFixed(quote?.asset_type === "Crypto" ? 4 : 2)} {customTickers ? "contratos" : "unidades"}
+                </span>
+              </div>
             </div>
+          ) : (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#0b1727]">
+                  Cantidad ({customTickers ? "Contratos" : "Unidades"})
+                </label>
+                {effectivePrice > 0 && (
+                  <span className="text-[10px] font-mono text-[#64748b]">
+                    Precio: ${effectivePrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })} USD
+                  </span>
+                )}
+              </div>
+
+              <input
+                type="number"
+                step="any"
+                min="0.0001"
+                value={quantity}
+                onChange={(e) => handleQuantityChange(e.target.value)}
+                required={sizingMode === "UNITS"}
+                className="w-full rounded-md border border-[#cbd5e1] bg-white px-3.5 py-2.5 font-mono text-base font-bold text-[#0b1727] focus:border-[#0b1727] focus:outline-none"
+              />
+
+              {/* Conversión a Nocional USD */}
+              <div className="rounded-lg bg-slate-100 border border-slate-200 p-2.5 text-xs text-[#475569] flex items-center justify-between">
+                <span>Inversión Nocional Equivalente:</span>
+                <span className="font-mono font-bold text-sm text-[#0b1727]">
+                  ${(qtyNum * effectivePrice).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Modo de Margen */}
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
+            Modo de Margen
+          </label>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setMarginMode("ISOLATED")}
+              className={`rounded-md py-2 px-2 text-[11px] font-bold transition-all flex flex-col items-center justify-center ${
+                marginMode === "ISOLATED"
+                  ? "bg-[#0b1727] text-white shadow-sm ring-2 ring-[#1e3a8a]"
+                  : "border border-[#cbd5e1] bg-white text-[#475569] hover:bg-[#f8fafc]"
+              }`}
+            >
+              <span>Aislado</span>
+              <span className="text-[9px] opacity-75 font-normal">ISOLATED (Riesgo en Posición)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMarginMode("CROSS")}
+              className={`rounded-md py-2 px-2 text-[11px] font-bold transition-all flex flex-col items-center justify-center ${
+                marginMode === "CROSS"
+                  ? "bg-[#0b1727] text-white shadow-sm ring-2 ring-[#1e3a8a]"
+                  : "border border-[#cbd5e1] bg-white text-[#475569] hover:bg-[#f8fafc]"
+              }`}
+            >
+              <span>Cruzado</span>
+              <span className="text-[9px] opacity-75 font-normal">CROSS (Colateral Compartido)</span>
+            </button>
           </div>
         </div>
 
@@ -718,6 +943,10 @@ export const TradingOrderCard: React.FC<{
             ? "🔒 Venta Bloqueada: Sin Tenencia Comprada"
             : isActionLoading
             ? "Enviando Orden al Motor Cuantitativo..."
+            : quote?.asset_type === "Stock" && !quote.is_market_open
+            ? orderType === "LIMIT"
+              ? "Colocar Orden Límite Fuera de Hora →"
+              : "Programar Orden para Apertura (09:30 ET) →"
             : orderType === "LIMIT"
             ? `Colocar Orden Límite de ${orderSide === "BUY" ? "Compra" : "Venta"} a $${limitPriceNum.toFixed(2)} →`
             : `Ejecutar Orden de Mercado (${orderSide === "BUY" ? "Compra" : "Venta"}) →`}

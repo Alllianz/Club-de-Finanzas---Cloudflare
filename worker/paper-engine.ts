@@ -67,12 +67,20 @@ export async function ensurePortfolioSeed(
   const capital = initialCap || tournament?.initial_capital || INITIAL_CAPITAL;
   const now = Date.now();
 
+  // Asegurar columnas de drawdown en D1
+  try {
+    await db.prepare("ALTER TABLE paper_portfolios ADD COLUMN peak_equity REAL DEFAULT NULL").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE paper_portfolios ADD COLUMN max_drawdown_nominal REAL DEFAULT 0.0").run();
+  } catch {}
+
   await db
     .prepare(
-      `INSERT OR IGNORE INTO paper_portfolios (game_id, user_id, cash_balance, realized_pnl, total_fees, updated_at)
-       VALUES (?, ?, ?, 0.0, 0.0, ?)`
+      `INSERT OR IGNORE INTO paper_portfolios (game_id, user_id, cash_balance, realized_pnl, total_fees, peak_equity, max_drawdown_nominal, updated_at)
+       VALUES (?, ?, ?, 0.0, 0.0, ?, 0.0, ?)`
     )
-    .bind(gameId, groupId, capital, now)
+    .bind(gameId, groupId, capital, capital, now)
     .run();
 
   const row = await db
@@ -87,6 +95,8 @@ export async function ensurePortfolioSeed(
       cash_balance: capital,
       realized_pnl: 0,
       total_fees: 0,
+      peak_equity: capital,
+      max_drawdown_nominal: 0,
       updated_at: now,
     }
   );
@@ -148,6 +158,66 @@ export async function getMarkedPortfolio(db: D1Database, groupId: string, target
   const equity = port.cash_balance + totalUsedMargin + totalUnrealizedPnl;
   const roePct = ((equity - initialCap) / initialCap) * 100;
 
+  // =========================================================================
+  // CÁLCULO DE MÁXIMO DRAWDOWN NOMINAL (FÓRMULA INSTITUCIONAL SYLVA / ASTRO EVO)
+  // DD_nom = Peak - Equity. CERO LOOK-AHEAD BIAS (t <= T: causalidad temporal estricta)
+  // =========================================================================
+  let peak = initialCap;
+  let maxDdNominal = 0.0;
+  let runningEquity = initialCap;
+
+  try {
+    const tradesRes = await db
+      .prepare(
+        "SELECT realized_pnl, fee, timestamp FROM paper_trades WHERE game_id = ? AND user_id = ? ORDER BY timestamp ASC"
+      )
+      .bind(gameId, groupId)
+      .all<{ realized_pnl: number; fee: number; timestamp: number }>();
+
+    if (tradesRes.results && tradesRes.results.length > 0) {
+      for (const tr of tradesRes.results) {
+        // En trades de cierre realized_pnl ya es neto (grossPnl - closeFee).
+        // Si realized_pnl === 0 (trade de apertura), se descuenta tr.fee.
+        if (tr.realized_pnl !== 0) {
+          runningEquity += tr.realized_pnl;
+        } else {
+          runningEquity -= tr.fee;
+        }
+
+        if (runningEquity > peak) {
+          peak = runningEquity;
+        }
+        const dd = Math.max(0, peak - runningEquity);
+        if (dd > maxDdNominal) {
+          maxDdNominal = dd;
+        }
+      }
+    }
+  } catch {
+    // Si no hay tabla de trades, se utiliza el estado de equidad actual
+  }
+
+  // Evaluar contra el patrimonio actual Mark-to-Market (equity)
+  if (equity > peak) {
+    peak = equity;
+  }
+  const liveDd = Math.max(0, peak - equity);
+  if (liveDd > maxDdNominal) {
+    maxDdNominal = liveDd;
+  }
+
+  // Persistir estado de Drawdown y pico actualizado en segundo plano
+  try {
+    await db
+      .prepare(
+        "UPDATE paper_portfolios SET peak_equity = ?, max_drawdown_nominal = ?, updated_at = ? WHERE game_id = ? AND user_id = ?"
+      )
+      .bind(peak, maxDdNominal, Date.now(), gameId, groupId)
+      .run();
+  } catch {
+    // Silencioso
+  }
+
   return {
     portfolio: {
       ...port,
@@ -156,6 +226,8 @@ export async function getMarkedPortfolio(db: D1Database, groupId: string, target
       unrealized_pnl: totalUnrealizedPnl,
       free_margin: port.cash_balance,
       roe_pct: roePct,
+      peak_equity: peak,
+      max_drawdown_nominal: maxDdNominal,
     },
     positions: markedPositions,
   };
@@ -644,10 +716,33 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string): Pro
     // Si la tabla no existe o falla la consulta, se mantiene el fallback por defecto
   }
 
+  const isFutures = (tournament?.tournament_type === "FUTURES") || gameId.toLowerCase().includes("futur");
+  const rankingRule: "FUTURES" | "PORTFOLIO" = isFutures ? "FUTURES" : "PORTFOLIO";
+
   for (const group of groups) {
     const finalGroupName = customNamesMap[group.id] || group.name;
     try {
       const data = await getMarkedPortfolio(db, group.id, gameId);
+      const eq = data.portfolio.equity;
+      const dd = Math.max(0, data.portfolio.max_drawdown_nominal ?? 0.0);
+      const netProfit = eq - initialCap;
+
+      // Cálculo de Score Oficial según tipo de torneo
+      let score = 0;
+      if (isFutures) {
+        // En futuros el primer puesto es el que más Capital Total hace
+        score = eq;
+      } else {
+        // En portafolio el primer puesto es: (Capital Total - Capital Inicial) / Maximo Drawdown
+        if (dd > 1e-6) {
+          score = netProfit / dd;
+        } else if (netProfit > 1e-6) {
+          score = 999.0 + netProfit; // Cero drawdown con ganancia positiva (estándar Sylva)
+        } else {
+          score = 0.0;
+        }
+      }
+
       leaderboard.push({
         groupId: group.id,
         groupName: finalGroupName,
@@ -657,12 +752,17 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string): Pro
         unrealizedPnl: data.portfolio.unrealized_pnl,
         realizedPnl: data.portfolio.realized_pnl,
         totalFees: data.portfolio.total_fees,
-        equity: data.portfolio.equity,
+        equity: eq,
         roePct: data.portfolio.roe_pct,
+        peakEquity: data.portfolio.peak_equity ?? initialCap,
+        maxDrawdownNominal: dd,
         openPositionsCount: data.positions.length,
         rank: 0,
+        score,
+        rankingRule,
       });
     } catch {
+      const defaultScore = isFutures ? initialCap : 0.0;
       leaderboard.push({
         groupId: group.id,
         groupName: finalGroupName,
@@ -674,14 +774,31 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string): Pro
         totalFees: 0,
         equity: initialCap,
         roePct: 0,
+        peakEquity: initialCap,
+        maxDrawdownNominal: 0.0,
         openPositionsCount: 0,
         rank: 0,
+        score: defaultScore,
+        rankingRule,
       });
     }
   }
 
-  // Ordenar por patrimonio (equity) descendente
-  leaderboard.sort((a, b) => b.equity - a.equity);
+  // Ordenamiento oficial:
+  // - En Futuros: Por Capital Total (equity) descendente
+  // - En Portafolio: Por Score (Capital Total - Capital Inicial) / Max Drawdown descendente, con desempate por equity
+  if (isFutures) {
+    leaderboard.sort((a, b) => b.equity - a.equity);
+  } else {
+    leaderboard.sort((a, b) => {
+      const scoreDiff = (b.score ?? 0) - (a.score ?? 0);
+      if (Math.abs(scoreDiff) > 1e-9) {
+        return scoreDiff;
+      }
+      return b.equity - a.equity;
+    });
+  }
+
   leaderboard.forEach((entry, idx) => {
     entry.rank = idx + 1;
   });

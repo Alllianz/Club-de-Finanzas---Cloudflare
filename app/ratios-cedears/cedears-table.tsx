@@ -14,12 +14,19 @@ export function CedearsTable() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const trimmed = search.trim();
+    // Guarda estricta: Si se ingresó 1 solo carácter, omitir petición a la red para prevenir sobrecarga
+    if (trimmed.length === 1) {
+      return;
+    }
+
+    // Debounce aumentado a 400ms para búsqueda de activos
     const timeoutId = window.setTimeout(async () => {
       try {
         setLoading(true);
         setError(null);
         const data = await cedearsService.getAll({
-          search: search || undefined,
+          search: trimmed.length >= 2 ? trimmed : undefined,
           market: market || undefined,
           limit: 1200,
         });
@@ -31,7 +38,7 @@ export function CedearsTable() {
       } finally {
         setLoading(false);
       }
-    }, 250);
+    }, 400);
 
     return () => {
       window.clearTimeout(timeoutId);

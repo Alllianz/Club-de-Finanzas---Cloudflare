@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { fetchQuote } from "../services/paperApi";
 import { LiveMarketQuote } from "../types/paper-trading";
 import { realtimePriceStream, RealtimePriceTick } from "../services/realtimePriceStream";
@@ -15,9 +15,10 @@ export interface UseLiveQuoteReturn {
 }
 
 export function useLiveQuote(rawSymbol: string): UseLiveQuoteReturn {
-  const symbol = (rawSymbol || "").trim().toUpperCase();
+  const normalizedSymbol = (rawSymbol || "").trim().toUpperCase();
+  const [debouncedSymbol, setDebouncedSymbol] = useState<string>(normalizedSymbol);
   const [quote, setQuote] = useState<LiveMarketQuote | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isLiveStreaming, setIsLiveStreaming] = useState<boolean>(false);
   const [priceDirection, setPriceDirection] = useState<"up" | "down" | "none">("none");
   const [error, setError] = useState<string | null>(null);
@@ -25,14 +26,28 @@ export function useLiveQuote(rawSymbol: string): UseLiveQuoteReturn {
   const prevPriceRef = useRef<number | null>(null);
   const directionTimeoutRef = useRef<any>(null);
 
+  // Debounce de 400ms sobre el ticker ingresado para evitar ráfagas HTTP por pulsación de tecla
+  useEffect(() => {
+    if (normalizedSymbol.length < 2) {
+      setDebouncedSymbol(normalizedSymbol);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setDebouncedSymbol(normalizedSymbol);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [normalizedSymbol]);
+
   const isCrypto =
-    symbol.endsWith("-USD") ||
-    symbol.endsWith("-USDT") ||
-    symbol.endsWith("USDT") ||
-    symbol.includes("BTC") ||
-    symbol.includes("ETH") ||
-    symbol.includes("SOL") ||
-    symbol.includes("BNB");
+    debouncedSymbol.endsWith("-USD") ||
+    debouncedSymbol.endsWith("-USDT") ||
+    debouncedSymbol.endsWith("USDT") ||
+    debouncedSymbol.includes("BTC") ||
+    debouncedSymbol.includes("ETH") ||
+    debouncedSymbol.includes("SOL") ||
+    debouncedSymbol.includes("BNB");
 
   const triggerPriceDirection = (newPrice: number) => {
     if (prevPriceRef.current !== null && prevPriceRef.current !== newPrice) {
@@ -46,11 +61,15 @@ export function useLiveQuote(rawSymbol: string): UseLiveQuoteReturn {
     prevPriceRef.current = newPrice;
   };
 
-  const loadInitialQuote = async () => {
-    if (!symbol) return;
+  const loadInitialQuote = useCallback(async () => {
+    // Guarda estricta: No disparar petición si el ticker tiene menos de 2 caracteres o si la pestaña está oculta
+    if (debouncedSymbol.length < 2 || (typeof document !== "undefined" && document.hidden)) {
+      return;
+    }
     try {
+      setIsLoading(true);
       setError(null);
-      const res = await fetchQuote(symbol);
+      const res = await fetchQuote(debouncedSymbol);
       setQuote(res);
       triggerPriceDirection(res.price);
     } catch (err) {
@@ -58,33 +77,37 @@ export function useLiveQuote(rawSymbol: string): UseLiveQuoteReturn {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [debouncedSymbol]);
 
   useEffect(() => {
     prevPriceRef.current = null;
-    setIsLoading(true);
     setError(null);
     setPriceDirection("none");
 
-    if (!symbol) {
+    // Guarda estricta: Si el input está vacío o tiene menos de 2 caracteres, no realizar petición ni suscripción
+    if (debouncedSymbol.length < 2) {
       setQuote(null);
       setIsLoading(false);
+      setIsLiveStreaming(false);
       return;
     }
 
-    // 1. Cargar datos iniciales del backend
+    let isMounted = true;
+
+    // 1. Cargar datos iniciales
     loadInitialQuote();
 
-    // 2. Si es Cripto, conectar al WebSocket de ultra-baja latencia (1 segundo)
+    // 2. Si es Cripto, conectar al WebSocket de precios en vivo
     let unsubscribeWs: (() => void) | null = null;
     if (isCrypto) {
       setIsLiveStreaming(true);
-      unsubscribeWs = realtimePriceStream.subscribe(symbol, (tick: RealtimePriceTick) => {
+      unsubscribeWs = realtimePriceStream.subscribe(debouncedSymbol, (tick: RealtimePriceTick) => {
+        if (!isMounted || (typeof document !== "undefined" && document.hidden)) return;
         triggerPriceDirection(tick.price);
         setQuote((prev) => {
           if (!prev) {
             return {
-              symbol,
+              symbol: debouncedSymbol,
               asset_type: "Crypto",
               price: tick.price,
               change_24h_pct: tick.change24hPct,
@@ -104,22 +127,34 @@ export function useLiveQuote(rawSymbol: string): UseLiveQuoteReturn {
       });
     } else {
       setIsLiveStreaming(false);
-      // Para acciones tradicionales (Yahoo Finance), sondeo sincronizado a 10 segundos
+      // Intervalo de 15s con verificación de pestaña visible
       const interval = setInterval(() => {
-        loadInitialQuote();
-      }, 10000);
+        if (typeof document !== "undefined" && !document.hidden) {
+          loadInitialQuote();
+        }
+      }, 15000);
+
+      const handleVisibilityChange = () => {
+        if (typeof document !== "undefined" && !document.hidden && isMounted) {
+          loadInitialQuote();
+        }
+      };
+      document.addEventListener("visibilitychange", handleVisibilityChange);
 
       return () => {
+        isMounted = false;
         clearInterval(interval);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
         if (directionTimeoutRef.current) clearTimeout(directionTimeoutRef.current);
       };
     }
 
     return () => {
+      isMounted = false;
       if (unsubscribeWs) unsubscribeWs();
       if (directionTimeoutRef.current) clearTimeout(directionTimeoutRef.current);
     };
-  }, [symbol, isCrypto]);
+  }, [debouncedSymbol, isCrypto, loadInitialQuote]);
 
   return {
     quote,

@@ -4,11 +4,17 @@ import React, { useState } from "react";
 import { useGroupTrading } from "../context/GroupTradingContext";
 
 export const GroupLeaderboard: React.FC = () => {
-  const { leaderboard, currentGroup, renameGroup } = useGroupTrading();
+  const { leaderboard, currentGroup, renameGroup, tournament } = useGroupTrading();
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editNameValue, setEditNameValue] = useState<string>("");
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Determinar si la competencia actual es de Futuros o de Portafolio
+  const isFutures =
+    tournament?.tournamentType === "FUTURES" ||
+    leaderboard[0]?.rankingRule === "FUTURES" ||
+    (tournament?.id || "").toLowerCase().includes("futur");
 
   const handleStartEdit = (groupId: string, currentName: string) => {
     setEditingGroupId(groupId);
@@ -37,19 +43,31 @@ export const GroupLeaderboard: React.FC = () => {
 
   return (
     <div className="rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between border-b border-[#f1f5f9] pb-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#f1f5f9] pb-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="h-[2px] w-4 bg-[#b89047]" />
             <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]">
-              Ranking Oficial
+              Ranking Oficial {isFutures ? "Futuros & Derivados" : "Portafolio"}
             </span>
+
+            {isFutures ? (
+              <span className="rounded-full bg-blue-50 border border-blue-200 px-2.5 py-0.5 text-[10px] font-bold text-blue-800">
+                1° Puesto: Mayor Capital Total
+              </span>
+            ) : (
+              <span className="rounded-full bg-emerald-50 border border-emerald-300 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800">
+                1° Puesto: (Capital Total − Cap. Inicial) / Max DD
+              </span>
+            )}
           </div>
           <h3 className="mt-1 font-serif text-xl font-bold text-[#0b1727]">
             Leaderboard de Grupos UBA
           </h3>
           <p className="mt-1 text-xs text-[#64748b]">
-            Competencia de asignación táctica y trading cuantitativo en tiempo real.
+            {isFutures
+              ? "Competencia de trading apalancado y cobertura. Gana el equipo con mayor Capital Total (Equity)."
+              : "Competencia de asignación y gestión de riesgo. Gana el equipo con mayor retorno relativo al Máximo Drawdown."}
           </p>
         </div>
 
@@ -65,9 +83,17 @@ export const GroupLeaderboard: React.FC = () => {
           <thead>
             <tr className="border-b border-[#e5e7eb] text-[10px] font-bold uppercase tracking-[0.1em] text-[#64748b]">
               <th className="py-3 px-3 text-center w-[50px]">Pos.</th>
-              <th className="py-3 px-3 min-w-[280px] md:w-[340px]">Equipo / Grupo</th>
-              <th className="py-3 px-3">Patrimonio (Equity)</th>
+              <th className="py-3 px-3 min-w-[280px] md:w-[320px]">Equipo / Grupo</th>
+              <th className="py-3 px-3">
+                Patrimonio (Equity) {isFutures && <span className="text-amber-600">★ Criterio 1°</span>}
+              </th>
+              {!isFutures && (
+                <th className="py-3 px-3 bg-amber-50/50 text-[#1e3a8a]">
+                  Score Retorno/DD <span className="text-amber-600">★ Criterio 1°</span>
+                </th>
+              )}
               <th className="py-3 px-3">Retorno (ROE)</th>
+              <th className="py-3 px-3">Max DD Nominal</th>
               <th className="py-3 px-3">PnL Realizado</th>
               <th className="py-3 px-3">PnL Flotante</th>
               <th className="py-3 px-3 text-center w-[85px]">Posiciones</th>
@@ -107,7 +133,7 @@ export const GroupLeaderboard: React.FC = () => {
                   </td>
 
                   {/* Columna Equipo / Grupo Más Ancha con Edición de Nombre */}
-                  <td className="py-3.5 px-3 min-w-[280px] md:w-[340px]">
+                  <td className="py-3.5 px-3 min-w-[280px] md:w-[320px]">
                     {isEditing ? (
                       <div className="flex items-center gap-1.5">
                         <input
@@ -148,6 +174,11 @@ export const GroupLeaderboard: React.FC = () => {
                           <span className="font-bold text-[#0b1727] text-sm">
                             {item.groupName}
                           </span>
+                          {item.rank === 1 && (
+                            <span className="rounded bg-amber-500/20 text-amber-900 border border-amber-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider">
+                              👑 1° Puesto
+                            </span>
+                          )}
                           {isCurrent && (
                             <span className="rounded bg-[#0b1727] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
                               Tu Grupo
@@ -173,12 +204,41 @@ export const GroupLeaderboard: React.FC = () => {
                   <td className="py-3.5 px-3 font-mono font-bold text-[#0b1727]">
                     ${item.equity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
+
+                  {/* Columna Score Retorno / Drawdown (Exclusivo Torneo de Portafolio) */}
+                  {!isFutures && (
+                    <td className="py-3.5 px-3 font-mono font-bold bg-amber-50/30">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-bold ${
+                          (item.score ?? 0) > 0
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            : (item.score ?? 0) < 0
+                            ? "bg-red-50 text-red-700 border border-red-200"
+                            : "bg-slate-100 text-slate-700 border border-slate-200"
+                        }`}
+                        title="Fórmula: (Capital Total - Capital Inicial) / Máximo Drawdown"
+                      >
+                        {item.score !== undefined
+                          ? item.score > 900
+                            ? "∞ (Sin DD)"
+                            : `${item.score >= 0 ? "+" : ""}${item.score.toFixed(2)}x`
+                          : "0.00x"}
+                      </span>
+                    </td>
+                  )}
+
                   <td className="py-3.5 px-3 font-mono font-bold">
                     <span className={isRoePositive ? "text-emerald-600" : "text-red-600"}>
                       {isRoePositive ? "+" : ""}
                       {item.roePct.toFixed(2)}%
                     </span>
                   </td>
+
+                  {/* Máximo Drawdown Nominal (Estándar Sylva / Astro EVO) */}
+                  <td className="py-3.5 px-3 font-mono font-bold text-red-600">
+                    -${(item.maxDrawdownNominal ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+
                   <td className="py-3.5 px-3 font-mono text-[#334155]">
                     <span className={item.realizedPnl >= 0 ? "text-emerald-600" : "text-red-600"}>
                       {item.realizedPnl >= 0 ? "+" : ""}

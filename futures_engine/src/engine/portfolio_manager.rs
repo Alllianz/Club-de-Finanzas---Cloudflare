@@ -73,6 +73,8 @@ impl PortfolioManager {
                 existing.isolated_margin += additional_margin;
                 existing.liquidation_price = thresholds.liquidation_price;
                 existing.bankruptcy_price = thresholds.bankruptcy_price;
+                existing.multiplier = contract.multiplier;
+                existing.maintenance_margin_rate = contract.maintenance_margin_rate;
                 existing.updated_at = trade.executed_at;
 
                 self.account.initial_margin += additional_margin;
@@ -167,6 +169,8 @@ impl PortfolioManager {
                         new_margin,
                         thresholds.liquidation_price,
                         thresholds.bankruptcy_price,
+                        contract.multiplier,
+                        contract.maintenance_margin_rate,
                         trade.executed_at,
                     );
 
@@ -202,6 +206,8 @@ impl PortfolioManager {
                 initial_margin,
                 thresholds.liquidation_price,
                 thresholds.bankruptcy_price,
+                contract.multiplier,
+                contract.maintenance_margin_rate,
                 trade.executed_at,
             );
 
@@ -210,7 +216,7 @@ impl PortfolioManager {
         }
 
         self.trade_history.push(trade.clone());
-        self.recalculate_account_totals(contract);
+        self.recalculate_account_totals();
         Ok(())
     }
 
@@ -254,18 +260,21 @@ impl PortfolioManager {
             // Eliminar posición liquidada de la cartera
             if let Some(pos) = self.positions.remove(&event.symbol) {
                 self.account.initial_margin = (self.account.initial_margin - pos.isolated_margin).max(0.0);
-                self.account.cash_balance += event.margin_recovered;
-                self.account.cash_balance -= event.deficit_loss;
+                let net_loss = (pos.isolated_margin - event.margin_recovered) + event.deficit_loss;
+                self.account.cash_balance -= net_loss;
+                self.account.realized_pnl -= net_loss;
             }
             self.liquidation_history.push(event.clone());
         }
 
-        self.recalculate_account_totals(contract);
+        self.recalculate_account_totals();
         Ok(liq_event)
     }
 
     /// Recalcula los totales de margen, PnL no realizado y equity de la cuenta.
-    pub fn recalculate_account_totals(&mut self, contract: &FutureContract) {
+    /// Soporta múltiples activos calculando el margen de mantenimiento individualmente
+    /// con los parámetros propios de cada posición.
+    pub fn recalculate_account_totals(&mut self) {
         let mut agg_unrealized = 0.0;
         let mut agg_initial_margin = 0.0;
         let mut agg_maint_margin = 0.0;
@@ -274,9 +283,7 @@ impl PortfolioManager {
             if pos.is_open() {
                 agg_unrealized += pos.unrealized_pnl;
                 agg_initial_margin += pos.isolated_margin;
-                if let Ok(mm) = MarginCalculator::calculate_maintenance_margin(contract, pos.quantity, pos.current_price) {
-                    agg_maint_margin += mm;
-                }
+                agg_maint_margin += pos.calculate_maintenance_margin();
             }
         }
 
