@@ -10,7 +10,7 @@ type HeroProps = {
 export function PageHero({ eyebrow, title, description, aside }: HeroProps) {
   return (
     <section className="relative border-b border-[#e5e7eb] bg-[#fafaf9] py-14 md:py-20">
-      <div className="mx-auto w-[min(1320px,92vw)]">
+      <div className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10">
         <div className="max-w-4xl animate-fade-up">
           <div className="flex items-center gap-2.5">
             <span className="h-[2px] w-6 bg-[#b89047]" />

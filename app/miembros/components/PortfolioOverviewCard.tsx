@@ -21,13 +21,30 @@ export const PortfolioOverviewCard: React.FC = () => {
   const maxDdNominal = portfolio?.max_drawdown_nominal ?? 0;
   const peakEquity = portfolio?.peak_equity ?? Math.max(baseCapital, equity);
 
+  // Métricas institucionales de Drawdown porcentual y Cartera 100% Invertida
+  const maxDdPct =
+    portfolio?.max_drawdown_pct ??
+    (peakEquity > 1e-6 ? (maxDdNominal / peakEquity) * 100 : 0.0);
+
+  const investedValue =
+    portfolio?.invested_value ??
+    positions.reduce(
+      (acc, p) => acc + p.quantity * (p.current_price || p.entry_price),
+      0
+    );
+  const investedPct =
+    portfolio?.invested_pct ??
+    (equity > 1e-6 ? Math.min(100, Math.max(0, (investedValue / equity) * 100)) : 0.0);
+  const isFullyInvested = investedPct >= 95.0;
+  const remainingToInvest = Math.max(0, equity * 0.95 - investedValue);
+
   const netProfit = equity - baseCapital;
+  const investmentFactor = isFullyInvested ? 1.0 : Math.pow(Math.max(0, investedPct) / 95.0, 2);
+  const effectiveDd = Math.max(0.01, maxDdPct);
   const portfolioScore =
-    maxDdNominal > 1e-6
-      ? netProfit / maxDdNominal
-      : netProfit > 1e-6
-      ? 999.0 + netProfit
-      : 0.0;
+    netProfit >= 0
+      ? (netProfit / effectiveDd) * investmentFactor
+      : (netProfit / effectiveDd) / Math.max(0.05, investmentFactor);
 
   const isRoePositive = roePct >= 0;
   const isUnrealizedPositive = unrealized >= 0;
@@ -44,7 +61,7 @@ export const PortfolioOverviewCard: React.FC = () => {
             {!isFutures ? (
               <span
                 className="rounded-md bg-amber-50 border border-amber-300 px-2.5 py-0.5 text-[10px] font-bold text-amber-900"
-                title="Fórmula oficial de 1° puesto: (Capital Total - Capital Inicial) / Max Drawdown"
+                title="Fórmula oficial: ((Capital Total - Capital Inicial) / Max DD %) * Factor Inversión"
               >
                 Score Torneo: {portfolioScore > 900 ? "∞ (Sin DD)" : `${portfolioScore >= 0 ? "+" : ""}${portfolioScore.toFixed(2)}x`} (Retorno / DD)
               </span>
@@ -77,6 +94,61 @@ export const PortfolioOverviewCard: React.FC = () => {
         </div>
       </div>
 
+      {/* Banner Institucional de Cartera 100% Invertida (Tolerancia 5%) */}
+      <div className="mt-5 rounded-xl border p-4 bg-[#f8fafc] border-[#e2e8f0]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <span className="text-xl leading-none">
+              {isFullyInvested ? "🟢" : "⚠️"}
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-[#0b1727]">
+                  {isFullyInvested
+                    ? "Cartera 100% Invertida (Conforme)"
+                    : "Asignación Insuficiente: Efectivo Ocioso"}
+                </span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-mono font-bold border ${
+                    isFullyInvested
+                      ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                      : "bg-amber-100 text-amber-900 border-amber-300"
+                  }`}
+                >
+                  {investedPct.toFixed(1)}% Invertido
+                </span>
+              </div>
+              <p className="text-[11px] text-[#64748b] mt-0.5">
+                {isFullyInvested
+                  ? `Cumple el criterio institucional de inversión (≥ 95.0%). Efectivo libre residual en caja: $${cash.toFixed(2)} USD.`
+                  : `Se exige mantener ≥ 95.0% invertido. Restan invertir $${remainingToInvest.toFixed(2)} USD para alcanzar el umbral y evitar penalizaciones.`}
+              </p>
+            </div>
+          </div>
+          <div className="text-left sm:text-right font-mono text-xs font-bold">
+            <span className="text-[#64748b]">Max DD: </span>
+            <span className="text-red-600">-{maxDdPct.toFixed(2)}%</span>
+            <span className="text-[#94a3b8] ml-1 text-[11px]">(-${maxDdNominal.toFixed(2)})</span>
+          </div>
+        </div>
+
+        {/* Barra de progreso de inversión */}
+        <div className="mt-3 w-full bg-[#e2e8f0] rounded-full h-2 overflow-hidden relative">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${
+              isFullyInvested ? "bg-emerald-500" : investedPct >= 80 ? "bg-amber-500" : "bg-red-500"
+            }`}
+            style={{ width: `${Math.min(100, investedPct)}%` }}
+          />
+          {/* Indicador de marca mínima 95% */}
+          <div
+            className="absolute top-0 bottom-0 w-[2px] bg-[#0b1727] z-10"
+            style={{ left: "95%" }}
+            title="Umbral reglamentario mínimo: 95.0%"
+          />
+        </div>
+      </div>
+
       <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-7">
         {/* Patrimonio Total (Mark to market) */}
         <div className="rounded-xl border border-[#e5e7eb] bg-[#fafaf9] p-4">
@@ -89,14 +161,14 @@ export const PortfolioOverviewCard: React.FC = () => {
           <span className="text-[10px] text-[#64748b]">Mark-to-Market en vivo</span>
         </div>
 
-        {/* Máximo Drawdown Nominal (Fórmula Sylva / Astro EVO) */}
+        {/* Máximo Drawdown Nominal y Porcentual (Fórmula Sylva / Astro EVO) */}
         <div className="rounded-xl border border-red-200/90 bg-red-50/40 p-4">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-red-700">
-              Max DD Nominal
+              Max DD
             </span>
             <span className="rounded bg-red-100 px-1 py-0.5 text-[8px] font-mono font-bold text-red-800">
-              Sylva/Astro
+              -{maxDdPct.toFixed(2)}%
             </span>
           </div>
           <p className="mt-1 font-mono text-xl font-extrabold text-red-600">

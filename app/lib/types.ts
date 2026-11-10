@@ -268,9 +268,15 @@ export type FooterDisclaimerSetting = {
   subtext: string;
 };
 
+export type FooterQuickLink = {
+  label: string;
+  href: string;
+};
+
 export type SiteContentPayload = {
   clubStats: ClubStatSetting[];
   sponsorsTrust: SponsorTrustSetting[];
   officialChannels: ContactLink[];
   footerDisclaimer: FooterDisclaimerSetting;
+  quickLinks?: FooterQuickLink[];
 };

@@ -93,6 +93,8 @@ export const GroupLeaderboard: React.FC = () => {
                 </th>
               )}
               <th className="py-3 px-3">Retorno (ROE)</th>
+              <th className="py-3 px-3 text-center">Asignación (% Invertido)</th>
+              <th className="py-3 px-3">Max DD (%)</th>
               <th className="py-3 px-3">Max DD Nominal</th>
               <th className="py-3 px-3">PnL Realizado</th>
               <th className="py-3 px-3">PnL Flotante</th>
@@ -184,6 +186,14 @@ export const GroupLeaderboard: React.FC = () => {
                               Tu Grupo
                             </span>
                           )}
+                          {(item.complianceStatus === "NON_COMPLIANT_CASH" || (item.investedPct !== undefined && item.investedPct < 95.0)) && (
+                            <span
+                              className="rounded bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                              title="El grupo posee más del 5% en efectivo ocioso (< 95% invertido). Score penalizado cuadráticamente."
+                            >
+                              ⚠️ Caja Ociosa
+                            </span>
+                          )}
                         </div>
 
                         {canEdit && (
@@ -216,7 +226,7 @@ export const GroupLeaderboard: React.FC = () => {
                             ? "bg-red-50 text-red-700 border border-red-200"
                             : "bg-slate-100 text-slate-700 border border-slate-200"
                         }`}
-                        title="Fórmula: (Capital Total - Capital Inicial) / Máximo Drawdown"
+                        title="Fórmula: ((Capital Total - Capital Inicial) / Max DD) * Factor Inversión"
                       >
                         {item.score !== undefined
                           ? item.score > 900
@@ -234,7 +244,32 @@ export const GroupLeaderboard: React.FC = () => {
                     </span>
                   </td>
 
-                  {/* Máximo Drawdown Nominal (Estándar Sylva / Astro EVO) */}
+                  {/* Asignación de Cartera (% Invertido con tolerancia 5%) */}
+                  <td className="py-3.5 px-3 text-center font-mono">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold border ${
+                        (item.investedPct ?? 0) >= 95.0
+                          ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                          : (item.investedPct ?? 0) >= 80.0
+                          ? "bg-amber-50 text-amber-800 border-amber-300"
+                          : "bg-red-50 text-red-800 border-red-300"
+                      }`}
+                      title={
+                        (item.investedPct ?? 0) >= 95.0
+                          ? "Cartera 100% Invertida (Conforme >= 95%)"
+                          : "Infra-invertido (< 95%): Penalización cuadrática en Score"
+                      }
+                    >
+                      {(item.investedPct ?? 0).toFixed(1)}%
+                    </span>
+                  </td>
+
+                  {/* Drawdown Porcentual Formal (Estándar Sylva / Astro EVO) */}
+                  <td className="py-3.5 px-3 font-mono font-bold text-red-600">
+                    -{(item.maxDrawdownPct ?? (item.peakEquity && item.peakEquity > 0 ? ((item.maxDrawdownNominal ?? 0) / item.peakEquity) * 100 : 0)).toFixed(2)}%
+                  </td>
+
+                  {/* Máximo Drawdown Nominal */}
                   <td className="py-3.5 px-3 font-mono font-bold text-red-600">
                     -${(item.maxDrawdownNominal ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>

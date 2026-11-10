@@ -3,8 +3,17 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { contactLinks as fallbackLinks, navigation } from "../site-data";
-import type { ContactLink } from "../lib/types";
+import { contactLinks as fallbackLinks } from "../site-data";
+import type { ContactLink, FooterQuickLink } from "../lib/types";
+
+const defaultQuickLinks: FooterQuickLink[] = [
+  { label: "Inicio", href: "/" },
+  { label: "Portafolio", href: "/portfolio" },
+  { label: "Futuros", href: "/futuros" },
+  { label: "Research", href: "/research" },
+  { label: "Nosotros", href: "/quienes-somos" },
+  { label: "Sumate", href: "/unite" },
+];
 
 const defaultHeading =
   "Iniciativa académica y profesional creada y gestionada por estudiantes de la Facultad de Ciencias Económicas de la Universidad de Buenos Aires.";
@@ -24,6 +33,7 @@ export function SiteFooter() {
       isActive: true,
     }))
   );
+  const [quickLinks, setQuickLinks] = useState<FooterQuickLink[]>(defaultQuickLinks);
   const [footerHeading, setFooterHeading] = useState(defaultHeading);
   const [disclaimer, setDisclaimer] = useState(defaultDisclaimer);
 
@@ -34,8 +44,11 @@ export function SiteFooter() {
         throw new Error();
       })
       .then((data: any) => {
-        if (data.officialChannels && data.officialChannels.length > 0) {
+        if (data.officialChannels && Array.isArray(data.officialChannels) && data.officialChannels.length > 0) {
           setChannels(data.officialChannels.filter((c: any) => c.isActive !== false));
+        }
+        if (data.quickLinks && Array.isArray(data.quickLinks) && data.quickLinks.length > 0) {
+          setQuickLinks(data.quickLinks);
         }
         if (data.footerDisclaimer?.heading) {
           setFooterHeading(data.footerDisclaimer.heading);
@@ -51,7 +64,7 @@ export function SiteFooter() {
 
   return (
     <footer className="relative border-t border-[#e5e7eb] bg-[#fafaf9] pt-12 sm:pt-14 pb-10 text-[#475569] overflow-hidden">
-      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 space-y-10">
+      <div className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10 space-y-10">
         {/* Fila Principal (Formato .footer-main) */}
         <div className="grid grid-cols-1 items-start gap-8 md:grid-cols-[1.2fr_1.4fr_1fr] lg:items-center">
           {/* Logo y Misión Institucional Editable */}
@@ -70,26 +83,27 @@ export function SiteFooter() {
             </p>
           </div>
 
-          {/* Enlaces de Navegación */}
+          {/* Enlaces de Navegación Rápidos Editables */}
           <nav
             className="flex flex-wrap items-center gap-x-6 gap-y-3 text-xs font-semibold tracking-wider uppercase text-[#0b1727]"
             aria-label="Enlaces del pie"
           >
-            {navigation.map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                className="transition-colors hover:text-[#1e3a8a]"
-              >
-                {item.label}
-              </Link>
-            ))}
-            <Link
-              href="/unite"
-              className="text-[#1e3a8a] font-bold transition-colors hover:text-[#0b1727]"
-            >
-              Sumate ↗
-            </Link>
+            {quickLinks.map((item) => {
+              const isAccent = item.href === "/unite" || item.label.toLowerCase().includes("sumat");
+              return (
+                <Link
+                  key={`${item.label}-${item.href}`}
+                  href={item.href}
+                  className={`transition-colors ${
+                    isAccent
+                      ? "text-[#1e3a8a] font-bold hover:text-[#0b1727]"
+                      : "hover:text-[#1e3a8a]"
+                  }`}
+                >
+                  {item.label} {isAccent ? "↗" : ""}
+                </Link>
+              );
+            })}
           </nav>
 
           {/* Canales Oficiales Editables */}
@@ -100,7 +114,7 @@ export function SiteFooter() {
             <div className="flex flex-col gap-1.5">
               {channels.map((item) => (
                 <a
-                  key={item.label}
+                  key={item.id || `${item.label}-${item.href}`}
                   href={item.href}
                   target={item.href.startsWith("http") ? "_blank" : undefined}
                   rel={item.href.startsWith("http") ? "noopener noreferrer" : undefined}

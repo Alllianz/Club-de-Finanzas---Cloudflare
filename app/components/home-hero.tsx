@@ -3,7 +3,7 @@ import Link from "next/link";
 export function HomeHero() {
   return (
     <section className="relative border-b border-[#e5e7eb] bg-gradient-to-b from-[#fafaf9] to-[#ffffff] py-14 sm:py-16 md:py-24 overflow-hidden">
-      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10">
         <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-[1.08fr_0.92fr] lg:gap-16">
           {/* Columna Izquierda: Copy & Acciones */}
           <div className="animate-fade-up">

@@ -77,12 +77,15 @@ export function AreaPresidentsTimeline({
     .sort((a, b) => {
       if (a.isCurrent && !b.isCurrent) return -1;
       if (!a.isCurrent && b.isCurrent) return 1;
+      if (a.displayOrder !== undefined && b.displayOrder !== undefined && a.displayOrder !== b.displayOrder) {
+        return (a.displayOrder || 0) - (b.displayOrder || 0);
+      }
       return (b.startYear || 0) - (a.startYear || 0);
     });
 
   return (
     <section className="w-full max-w-full overflow-hidden py-12 md:py-16">
-      <div className="mx-auto w-[min(1320px,92vw)]">
+      <div className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10">
         {/* Cabecera de la sección */}
         <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>

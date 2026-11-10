@@ -17,7 +17,7 @@ export function PublicationsGrid({
 }: PublicationsGridProps) {
   return (
     <section className="py-14 sm:py-16 md:py-20 overflow-hidden">
-      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10">
         <div className="mb-8 flex items-end justify-between">
           <div>
             <div className="flex items-center gap-2">

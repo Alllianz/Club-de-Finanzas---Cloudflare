@@ -56,7 +56,7 @@ export function SponsorsStrip() {
 
   return (
     <section className="border-t border-[#e5e7eb] bg-white py-12 sm:py-14 text-center overflow-hidden">
-      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10">
         <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-[#64748b]">
           Gracias por confiar en nosotros
         </h3>

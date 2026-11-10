@@ -12,7 +12,7 @@ export default function MonitorGlobalPage() {
         description="Seguimiento de índices de Wall Street, curvas de rendimiento del Tesoro de EE.UU., commodities de energía y riesgo país argentino."
       />
 
-      <main className="mx-auto w-[min(1240px,92vw)] space-y-12 py-12 md:space-y-16 md:py-16">
+      <main className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10 space-y-12 py-12 md:space-y-16 md:py-16">
         <MonitorGlobalDashboard />
 
         <section className="space-y-6">

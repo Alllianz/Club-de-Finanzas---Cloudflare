@@ -21,7 +21,7 @@ export default async function NoticiasPage() {
         description={newsIntro}
       />
 
-      <main className="mx-auto w-[min(1280px,92vw)] space-y-16 py-12 md:space-y-20 md:py-16">
+      <main className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10 space-y-16 py-12 md:space-y-20 md:py-16">
         <section className="space-y-4">
           <SectionLabel
             eyebrow="Edición Principal"

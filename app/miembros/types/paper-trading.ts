@@ -31,6 +31,10 @@ export interface GroupPortfolio {
   roe_pct: number;
   peak_equity?: number;
   max_drawdown_nominal?: number;
+  max_drawdown_pct?: number;
+  invested_value?: number;
+  invested_pct?: number;
+  is_fully_invested?: boolean;
   updated_at: number;
 }
 
@@ -109,6 +113,11 @@ export interface LeaderboardItem {
   roePct: number;
   peakEquity?: number;
   maxDrawdownNominal?: number;
+  maxDrawdownPct?: number;
+  investedValue?: number;
+  investedPct?: number;
+  isFullyInvested?: boolean;
+  complianceStatus?: "COMPLIANT" | "NON_COMPLIANT_CASH";
   openPositionsCount: number;
   rank: number;
   score?: number;

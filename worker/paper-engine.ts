@@ -74,6 +74,9 @@ export async function ensurePortfolioSeed(
   try {
     await db.prepare("ALTER TABLE paper_portfolios ADD COLUMN max_drawdown_nominal REAL DEFAULT 0.0").run();
   } catch {}
+  try {
+    await db.prepare("ALTER TABLE paper_portfolios ADD COLUMN max_drawdown_pct REAL DEFAULT 0.0").run();
+  } catch {}
 
   await db
     .prepare(
@@ -205,17 +208,35 @@ export async function getMarkedPortfolio(db: D1Database, groupId: string, target
   if (liveDd > maxDdNominal) {
     maxDdNominal = liveDd;
   }
+  const maxDdPct = peak > 1e-6 ? (maxDdNominal / peak) * 100 : 0.0;
+
+  // Métricas de asignación y Cartera 100% Invertida (umbral 95.0%)
+  const investedValue = markedPositions.reduce(
+    (acc, p) => acc + (p.quantity * (p.current_price || p.entry_price)),
+    0
+  );
+  const investedPct = equity > 1e-6 ? Math.min(100, Math.max(0, (investedValue / equity) * 100)) : 0.0;
+  const isFullyInvested = investedPct >= 95.0;
 
   // Persistir estado de Drawdown y pico actualizado en segundo plano
   try {
     await db
       .prepare(
-        "UPDATE paper_portfolios SET peak_equity = ?, max_drawdown_nominal = ?, updated_at = ? WHERE game_id = ? AND user_id = ?"
+        "UPDATE paper_portfolios SET peak_equity = ?, max_drawdown_nominal = ?, max_drawdown_pct = ?, updated_at = ? WHERE game_id = ? AND user_id = ?"
       )
-      .bind(peak, maxDdNominal, Date.now(), gameId, groupId)
+      .bind(peak, maxDdNominal, maxDdPct, Date.now(), gameId, groupId)
       .run();
   } catch {
-    // Silencioso
+    try {
+      await db
+        .prepare(
+          "UPDATE paper_portfolios SET peak_equity = ?, max_drawdown_nominal = ?, updated_at = ? WHERE game_id = ? AND user_id = ?"
+        )
+        .bind(peak, maxDdNominal, Date.now(), gameId, groupId)
+        .run();
+    } catch {
+      // Silencioso
+    }
   }
 
   return {
@@ -228,6 +249,10 @@ export async function getMarkedPortfolio(db: D1Database, groupId: string, target
       roe_pct: roePct,
       peak_equity: peak,
       max_drawdown_nominal: maxDdNominal,
+      max_drawdown_pct: maxDdPct,
+      invested_value: investedValue,
+      invested_pct: investedPct,
+      is_fully_invested: isFullyInvested,
     },
     positions: markedPositions,
   };
@@ -725,21 +750,31 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string): Pro
       const data = await getMarkedPortfolio(db, group.id, gameId);
       const eq = data.portfolio.equity;
       const dd = Math.max(0, data.portfolio.max_drawdown_nominal ?? 0.0);
+      const peak = data.portfolio.peak_equity ?? Math.max(initialCap, eq);
+      const maxDdPct = data.portfolio.max_drawdown_pct ?? (peak > 1e-6 ? (dd / peak) * 100 : 0.0);
+      const investedValue = data.portfolio.invested_value ?? 0.0;
+      const investedPct = data.portfolio.invested_pct ?? (eq > 1e-6 ? Math.min(100, Math.max(0, (investedValue / eq) * 100)) : 0.0);
+      const isFullyInvested = investedPct >= 95.0;
+      const complianceStatus: "COMPLIANT" | "NON_COMPLIANT_CASH" = isFullyInvested ? "COMPLIANT" : "NON_COMPLIANT_CASH";
       const netProfit = eq - initialCap;
+
+      // Factor de penalización cuadrática para efectivo ocioso (tolerancia 5% => umbral 95.0%)
+      const investmentFactor = isFullyInvested ? 1.0 : Math.pow(Math.max(0, investedPct) / 95.0, 2);
 
       // Cálculo de Score Oficial según tipo de torneo
       let score = 0;
       if (isFutures) {
-        // En futuros el primer puesto es el que más Capital Total hace
-        score = eq;
+        // En futuros el primer puesto es el que más Capital Total hace, penalizado si tiene caja ociosa
+        score = eq * investmentFactor;
       } else {
-        // En portafolio el primer puesto es: (Capital Total - Capital Inicial) / Maximo Drawdown
-        if (dd > 1e-6) {
-          score = netProfit / dd;
-        } else if (netProfit > 1e-6) {
-          score = 999.0 + netProfit; // Cero drawdown con ganancia positiva (estándar Sylva)
+        // En portafolio el criterio institucional es:
+        // Score = ((Capital Total - Capital Inicial) / max(0.01, maxDrawdownPct)) * Factor Inversión
+        const effectiveDd = Math.max(0.01, maxDdPct);
+        if (netProfit >= 0) {
+          score = (netProfit / effectiveDd) * investmentFactor;
         } else {
-          score = 0.0;
+          // Si tiene pérdida y además caja ociosa no invertida, la penalización agrava el score negativo
+          score = (netProfit / effectiveDd) / Math.max(0.05, investmentFactor);
         }
       }
 
@@ -754,8 +789,13 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string): Pro
         totalFees: data.portfolio.total_fees,
         equity: eq,
         roePct: data.portfolio.roe_pct,
-        peakEquity: data.portfolio.peak_equity ?? initialCap,
+        peakEquity: peak,
         maxDrawdownNominal: dd,
+        maxDrawdownPct: maxDdPct,
+        investedValue,
+        investedPct,
+        isFullyInvested,
+        complianceStatus,
         openPositionsCount: data.positions.length,
         rank: 0,
         score,
@@ -776,6 +816,11 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string): Pro
         roePct: 0,
         peakEquity: initialCap,
         maxDrawdownNominal: 0.0,
+        maxDrawdownPct: 0.0,
+        investedValue: 0.0,
+        investedPct: 0.0,
+        isFullyInvested: false,
+        complianceStatus: "NON_COMPLIANT_CASH",
         openPositionsCount: 0,
         rank: 0,
         score: defaultScore,

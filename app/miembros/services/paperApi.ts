@@ -297,3 +297,18 @@ export async function renameGroupApi(
     };
   }
 }
+
+export async function fetchDailySnapshotsApi(
+  groupId: string,
+  gameId?: string
+): Promise<any[]> {
+  try {
+    const params = new URLSearchParams({ groupId });
+    if (gameId) params.append("gameId", gameId);
+    const res = await fetch(`${API_BASE}/api/paper/daily-snapshots?${params.toString()}`);
+    const data = await res.json();
+    return data.success ? data.data : [];
+  } catch {
+    return [];
+  }
+}

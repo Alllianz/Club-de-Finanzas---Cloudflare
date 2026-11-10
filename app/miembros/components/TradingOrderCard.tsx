@@ -138,11 +138,90 @@ export const TradingOrderCard: React.FC<{
     }
   }, [effectivePrice, sizingMode]);
 
-  // Si cambia el quote y limitPrice está vacío o el ticker cambió, auto-asignar cantidad inteligente
+  // Cálculo riguroso de capital comprometido en órdenes pendientes (Zero Look-Ahead Bias)
+  const committedPendingCash = (pendingOrders || [])
+    .filter(
+      (o) =>
+        o.order_side === "BUY" &&
+        (o.status === "PENDING" || o.status === "PENDING_OPEN" || o.status === "PARTIALLY_FILLED")
+    )
+    .reduce((acc, o) => {
+      const remQty = Math.max(0, o.quantity - (o.filled_quantity || 0));
+      const p = o.limit_price || quote?.price || 0;
+      const lev = Math.max(1, o.leverage || 1);
+      const notional = p * remQty;
+      const margin = notional / lev;
+      const fee =
+        o.asset_type === "Crypto"
+          ? notional * 0.0005
+          : Math.max(1.0, Math.min(remQty * 0.005, notional * 0.01));
+      return acc + margin + fee;
+    }, 0);
+
+  const rawCash = portfolio?.cash_balance ?? 10000;
+  const realAvailableCash = Math.max(0, rawCash - committedPendingCash);
+
+  // Métrica institucional de Cartera 100% Invertida (umbral 95.0%)
+  const currentTotalEquity = portfolio?.equity ?? 10000;
+  const currentInvestedTotal = positions.reduce(
+    (acc, p) => acc + p.quantity * (p.current_price || p.entry_price),
+    0
+  );
+  const currentInvestedPct =
+    currentTotalEquity > 1e-6
+      ? Math.min(100, Math.max(0, (currentInvestedTotal / currentTotalEquity) * 100))
+      : 0.0;
+
+  // Función para resetear formulario tras orden exitosa
+  // Si preserveType es true, conserva orderType === 'LIMIT' para agilizar múltiples órdenes escalonadas
+  const resetOrderForm = (preserveType = true) => {
+    setLimitPrice("");
+    setQuantity("");
+    setAmountUsd("");
+    if (!preserveType) {
+      setOrderType("MARKET");
+    }
+  };
+
+  // Alternar sentido BUY / SELL vaciando limitPrice para evitar ejecuciones involuntarias
+  const handleToggleOrderSide = (newSide: "BUY" | "SELL") => {
+    if (newSide !== orderSide) {
+      setOrderSide(newSide);
+      setLimitPrice("");
+    }
+  };
+
+  // Botón rápido: Invertir 100% de Caja libre real descontando margen y comisiones
+  const handleInvest100PercentCash = () => {
+    if (realAvailableCash <= 0 || effectivePrice <= 0) return;
+    let targetUsd = 0;
+    if (quote?.asset_type === "Crypto") {
+      const denom = 1 / Math.max(1, leverage) + 0.0005;
+      targetUsd = realAvailableCash / denom;
+    } else {
+      const safetyReserve = Math.max(1.5, realAvailableCash * 0.005);
+      const usable = Math.max(0, realAvailableCash - safetyReserve);
+      targetUsd = usable * Math.max(1, leverage);
+    }
+
+    if (targetUsd > 0) {
+      if (sizingMode === "USD") {
+        handleAmountUsdChange(targetUsd.toFixed(2));
+      } else {
+        const targetUnits = targetUsd / effectivePrice;
+        const precision = quote?.asset_type === "Crypto" ? 4 : 2;
+        handleQuantityChange(targetUnits.toFixed(precision));
+      }
+    }
+  };
+
+  // Vaciado estricto de limitPrice al cambiar de Ticker (nunca hereda precio de otro activo)
   const lastNormalizedSymbol = useRef<string>("");
   useEffect(() => {
     if (quote && lastNormalizedSymbol.current !== quote.symbol) {
       lastNormalizedSymbol.current = quote.symbol;
+      setLimitPrice(""); // Limpiar siempre el precio límite al cambiar de activo
+
       if (sizingMode === "USD") {
         if (!amountUsd || parseFloat(amountUsd) <= 0) {
           setAmountUsd("1000");
@@ -164,15 +243,30 @@ export const TradingOrderCard: React.FC<{
           setAmountUsd((q * quote.price).toFixed(2));
         }
       }
-      if (orderType === "LIMIT" && !limitPrice) {
-        setLimitPrice(quote.price.toString());
-      }
     }
-  }, [quote, orderType, limitPrice, sizingMode]);
+  }, [quote, sizingMode]);
 
   const qtyNum = parseFloat(quantity) || 0;
   const notional = effectivePrice * qtyNum;
   const initialMargin = leverage > 0 ? notional / leverage : notional;
+
+  // Detección interactiva de Orden Límite Marketable (cruza el spread actual)
+  const isMarketableLimit =
+    orderType === "LIMIT" &&
+    limitPriceNum > 0 &&
+    currentPrice > 0 &&
+    ((orderSide === "BUY" && limitPriceNum >= currentPrice) ||
+      (orderSide === "SELL" && limitPriceNum <= currentPrice));
+
+  // Proyección de Cartera 100% Invertida tras orden de venta
+  const projectedSellNotional = effectivePrice * qtyNum;
+  const projectedInvestedTotal = Math.max(0, currentInvestedTotal - projectedSellNotional);
+  const projectedInvestedPct =
+    currentTotalEquity > 1e-6
+      ? Math.min(100, Math.max(0, (projectedInvestedTotal / currentTotalEquity) * 100))
+      : 0.0;
+  const isSellUnderInvested =
+    orderSide === "SELL" && qtyNum > 0 && projectedInvestedPct < 95.0;
 
   // Estimación de comisiones (5 bps Crypto, $0.005/acción Stock mín $1)
   const estFee =
@@ -258,13 +352,12 @@ export const TradingOrderCard: React.FC<{
       }
     }
 
-    // Para compras: validar efectivo disponible
+    // Para compras: validar liquidez disponible real descontando órdenes pendientes
     if (orderSide === "BUY") {
-      const availableCash = portfolio?.cash_balance ?? 10000;
-      if (initialMargin + estFee > availableCash) {
+      if (initialMargin + estFee > realAvailableCash) {
         setOrderFeedback({
           type: "error",
-          text: `Liquidez insuficiente: Requerís $${(initialMargin + estFee).toFixed(2)} y disponés de $${availableCash.toFixed(2)}.`,
+          text: `Liquidez insuficiente: Requerís $${(initialMargin + estFee).toFixed(2)} ($${initialMargin.toFixed(2)} de margen + $${estFee.toFixed(2)} de comisión) y disponés de $${realAvailableCash.toFixed(2)} de efectivo libre real${committedPendingCash > 0 ? ` ($${committedPendingCash.toFixed(2)} reservado en órdenes pendientes)` : ""}.`,
         });
         return;
       }
@@ -285,6 +378,8 @@ export const TradingOrderCard: React.FC<{
         type: "success",
         text: res.message || `¡Orden ${orderType} ${orderSide} procesada con éxito para ${symbol}!`,
       });
+      // Mantener orderType === 'LIMIT' para agilizar múltiples órdenes consecutivas
+      resetOrderForm(true);
     } else {
       setOrderFeedback({
         type: "error",
@@ -434,7 +529,13 @@ export const TradingOrderCard: React.FC<{
           <input
             type="text"
             value={symbol}
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            onChange={(e) => {
+              const val = e.target.value.toUpperCase();
+              if (val !== symbol) {
+                setLimitPrice(""); // Vaciado estricto al cambiar ticker para evitar heredar precios
+              }
+              setSymbol(val);
+            }}
             placeholder="Ingresá el ticker a operar (ej. NVDA, AAPL, GGAL, BTC-USD, SPY)..."
             required
             className="mt-2 w-full rounded-lg border border-[#cbd5e1] bg-white px-3.5 py-2.5 font-mono text-sm font-bold text-[#0b1727] placeholder-[#94a3b8] focus:border-[#0b1727] focus:outline-none"
@@ -541,7 +642,7 @@ export const TradingOrderCard: React.FC<{
           <div className="mt-1.5 grid grid-cols-2 gap-3">
             <button
               type="button"
-              onClick={() => setOrderSide("BUY")}
+              onClick={() => handleToggleOrderSide("BUY")}
               className={`rounded-lg border py-2.5 px-4 text-xs font-bold transition flex items-center justify-center gap-2 ${
                 orderSide === "BUY"
                   ? "border-emerald-600 bg-emerald-600 text-white shadow-xs"
@@ -552,7 +653,7 @@ export const TradingOrderCard: React.FC<{
             </button>
             <button
               type="button"
-              onClick={() => setOrderSide("SELL")}
+              onClick={() => handleToggleOrderSide("SELL")}
               className={`rounded-lg border py-2.5 px-4 text-xs font-bold transition flex items-center justify-center gap-2 ${
                 orderSide === "SELL"
                   ? "border-red-600 bg-red-600 text-white shadow-xs"
@@ -628,9 +729,22 @@ export const TradingOrderCard: React.FC<{
           </div>
         )}
 
+        {/* Advertencia interactiva de Desinversión si la venta deja la cartera < 95% invertida */}
+        {isSellUnderInvested && (
+          <div className="rounded-xl border border-amber-300 bg-amber-50/90 p-3.5 text-xs text-amber-950 flex items-start gap-2.5 shadow-xs">
+            <span className="text-base leading-none">⚠️</span>
+            <div className="space-y-0.5">
+              <p className="font-bold">Advertencia de Cartera 100% Invertida</p>
+              <p className="text-[11px] text-amber-900 leading-relaxed">
+                Esta orden de venta proyecta reducir la asignación a un <strong>{projectedInvestedPct.toFixed(1)}%</strong> invertido (&lt; 95.0%). Recordá reinvertir la caja ociosa en otros activos para mantener la condición institucional y evitar penalizaciones en el Leaderboard.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Input de Precio Límite (Visible solo si orderType === 'LIMIT') */}
         {orderType === "LIMIT" && (
-          <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-3.5 space-y-1.5">
+          <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-3.5 space-y-2">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
                 Precio Límite ($ USD)
@@ -660,6 +774,19 @@ export const TradingOrderCard: React.FC<{
                 ? `📉 Compra Límite: Se ejecutará automáticamente cuando el mercado caiga a $${limitPriceNum.toFixed(2)} o menos.`
                 : `📈 Venta Límite: Se ejecutará automáticamente cuando el mercado suba a $${limitPriceNum.toFixed(2)} o más.`}
             </p>
+
+            {/* Alerta Interactiva de Orden Límite Marketable */}
+            {isMarketableLimit && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-950 flex items-start gap-2 shadow-xs">
+                <span className="text-base leading-none">⚠️</span>
+                <div className="space-y-0.5">
+                  <p className="font-bold text-amber-950">Orden Límite Marketable</p>
+                  <p className="text-[11px] text-amber-900 leading-relaxed">
+                    Tu precio límite ($${limitPriceNum.toFixed(2)}) cruza el precio de mercado actual (${currentPrice.toFixed(2)}) y se ejecutará de inmediato al cruzar el spread.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -698,6 +825,31 @@ export const TradingOrderCard: React.FC<{
               <span>📊 Contratos / Unidades</span>
             </button>
           </div>
+
+          {/* Liquidez Disponible Real (Descontando órdenes pendientes) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-[#475569] bg-white rounded-lg p-2.5 border border-[#e2e8f0]">
+            <span className="font-semibold">Efectivo Disponible Real:</span>
+            <span className="font-mono font-bold text-[#0b1727]">
+              ${realAvailableCash.toFixed(2)} USD
+              {committedPendingCash > 0 && (
+                <span className="text-amber-700 font-normal ml-1 text-[10px]">
+                  (${committedPendingCash.toFixed(2)} en órdenes pendientes)
+                </span>
+              )}
+            </span>
+          </div>
+
+          {/* Botón rápido: Invertir 100% de Caja libre */}
+          {orderSide === "BUY" && (
+            <button
+              type="button"
+              onClick={handleInvest100PercentCash}
+              disabled={realAvailableCash <= 0}
+              className="w-full rounded-lg border-2 border-emerald-500 bg-emerald-50 hover:bg-emerald-100 py-2 px-3 text-xs font-extrabold text-emerald-900 transition flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-40"
+            >
+              <span>⚡ Invertir 100% de Caja (${realAvailableCash.toFixed(2)} USD)</span>
+            </button>
+          )}
 
           {/* Campo de Entrada según Modalidad */}
           {sizingMode === "USD" ? (
@@ -740,8 +892,7 @@ export const TradingOrderCard: React.FC<{
                     type="button"
                     onClick={() => {
                       if (orderSide === "BUY") {
-                        const avail = portfolio?.cash_balance ?? 10000;
-                        const val = avail * ratio;
+                        const val = realAvailableCash * ratio;
                         handleAmountUsdChange(val >= 1 ? val.toFixed(2) : val.toFixed(4));
                       } else {
                         const totalVal = availableToSell * effectivePrice;

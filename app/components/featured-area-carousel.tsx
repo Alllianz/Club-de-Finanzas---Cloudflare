@@ -130,7 +130,7 @@ export function FeaturedAreaCarousel() {
       onTouchEnd={handleTouchEnd}
       aria-label="Carrusel Institucional de Publicaciones"
     >
-      <div className="mx-auto w-[min(1320px,92vw)]">
+      <div className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10">
         {/* Encabezado y Selector de Área */}
         <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>

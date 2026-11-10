@@ -25,6 +25,10 @@ import {
   cancelPaperOrder,
   matchPendingOrders,
 } from "./limit-order-engine";
+import {
+  processDailyMarketCloseSnapshot,
+  getDailySnapshotsForGroup,
+} from "./daily-snapshot-engine";
 import { ejecutarOptimizacionCartera } from "./portfolio-quant/markowitz-optimizer";
 import { ejecutarIsOos } from "./portfolio-quant/is-oos-engine";
 import { ejecutarTracking } from "./portfolio-quant/tracking-engine";
@@ -530,6 +534,66 @@ export default {
           JSON.stringify({
             success: false,
             error: err instanceof Error ? err.message : "Error al generar leaderboard.",
+          }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
+    }
+
+    // =========================================================================
+    // 6A. SNAPSHOTS DIARIOS & MEDICIÓN DE DRAWDOWN HISTÓRICO (Cero Look-Ahead Bias)
+    // =========================================================================
+    if (url.pathname === "/api/paper/daily-snapshots" && request.method === "GET") {
+      try {
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Base de datos D1 no disponible." }),
+            { status: 503, headers: corsHeaders }
+          );
+        }
+        const gameId = url.searchParams.get("gameId")?.trim() || DEFAULT_GAME_ID;
+        const groupId = url.searchParams.get("groupId")?.trim();
+        if (!groupId) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Parámetro groupId requerido." }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+        const snapshots = await getDailySnapshotsForGroup(env.DB, gameId, groupId);
+        return new Response(
+          JSON.stringify({ success: true, data: snapshots }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al consultar snapshots diarios.",
+          }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
+    }
+
+    if ((url.pathname === "/api/paper/daily-snapshot" || url.pathname === "/api/paper/admin/snapshot-close") && request.method === "POST") {
+      try {
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Base de datos D1 no disponible." }),
+            { status: 503, headers: corsHeaders }
+          );
+        }
+        const body = (await request.json().catch(() => ({}))) as { date?: string; gameId?: string };
+        const result = await processDailyMarketCloseSnapshot(env.DB, body.date, body.gameId);
+        return new Response(
+          JSON.stringify({ success: true, ...result }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al procesar snapshot diario.",
           }),
           { status: 500, headers: corsHeaders }
         );
@@ -1155,12 +1219,17 @@ export default {
   },
 
   /**
-   * Cron Trigger para ejecución autónoma de órdenes límite y apertura fuera de hora (1 minuto)
-   * Anti Look-Ahead Bias: t_ejecucion >= t_apertura
+   * Cron Trigger para ejecución autónoma de órdenes límite, apertura fuera de hora
+   * y registro inmutable de snapshots de cierre diario (Cero Look-Ahead Bias: t_ejecucion >= t_cierre)
    */
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     if (env.DB) {
       await matchPendingOrders(env.DB);
+      try {
+        await processDailyMarketCloseSnapshot(env.DB);
+      } catch (snpErr) {
+        console.warn("[Worker Scheduled] Error al computar daily snapshot:", snpErr);
+      }
     }
   },
 };

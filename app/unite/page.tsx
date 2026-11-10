@@ -14,7 +14,7 @@ export default async function UnitePage() {
         description="Participá activamente de nuestras conferencias, grupos de investigación e integrá los equipos de análisis financiero."
       />
 
-      <main className="mx-auto w-[min(1280px,92vw)] space-y-16 py-12 md:space-y-20 md:py-16">
+      <main className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10 space-y-16 py-12 md:space-y-20 md:py-16">
         {/* Tarjetas Principales de Acción */}
         <section className="grid gap-6 md:grid-cols-2">
           <article className="flex flex-col justify-between rounded-2xl border border-[#e2e8f0] bg-[#ffffff] p-8 shadow-sm">

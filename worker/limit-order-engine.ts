@@ -379,7 +379,8 @@ async function checkBuySolvency(
   quantity: number,
   effectivePrice: number,
   leverage: number,
-  actionLabel: string
+  actionLabel: string,
+  excludeOrderId?: string
 ): Promise<void> {
   const notional = effectivePrice * quantity;
   const estFee = computeOrderFee(assetType, quantity, notional);
@@ -388,13 +389,19 @@ async function checkBuySolvency(
 
   const port = await ensurePortfolioSeed(db, groupId, gameId, initialCap);
 
-  const pendingBuyOrdersRes = await db
-    .prepare(
-      `SELECT symbol, asset_type, limit_price, quantity, filled_quantity, leverage 
+  let query = `SELECT symbol, asset_type, limit_price, quantity, filled_quantity, leverage 
        FROM paper_orders 
-       WHERE game_id = ? AND user_id = ? AND order_side = 'BUY' AND status IN ('PENDING', 'PENDING_OPEN', 'PARTIALLY_FILLED')`
-    )
-    .bind(gameId, groupId)
+       WHERE game_id = ? AND user_id = ? AND order_side = 'BUY' AND status IN ('PENDING', 'PENDING_OPEN', 'PARTIALLY_FILLED')`;
+  const params: unknown[] = [gameId, groupId];
+
+  if (excludeOrderId) {
+    query += " AND id != ?";
+    params.push(excludeOrderId);
+  }
+
+  const pendingBuyOrdersRes = await db
+    .prepare(query)
+    .bind(...params)
     .all<{
       symbol: string;
       asset_type: string;
@@ -671,6 +678,8 @@ export async function createPaperOrder(
 
   // Caso 1: Se llena de inmediato (Market o Limit ejecutable)
   if (canFillImmediately) {
+    const isMarketableLimit = orderType === "LIMIT";
+
     if (orderSide === "SELL" && isSoloLong && existingLongPos) {
       // Cierre parcial o total de la posición LONG existente
       const closeResult = await executeClosePositionOperation(
@@ -710,10 +719,13 @@ export async function createPaperOrder(
         )
         .run();
 
+      const prefixMsg = isMarketableLimit ? "⚡ [Marketable Limit Fill] " : "";
       return {
         success: true,
         orderId,
         isFilled: true,
+        isMarketableLimit,
+        status: "FILLED",
         orderType,
         orderSide,
         executedPrice: executionPrice,
@@ -722,11 +734,26 @@ export async function createPaperOrder(
         netRealizedPnl: closeResult.netRealizedPnl,
         isFullClose: closeResult.isFullClose,
         message: closeResult.isFullClose
-          ? `Posición comprada en ${symbol} cerrada en su totalidad a $${executionPrice.toFixed(2)}.`
-          : `Venta parcial de ${quantity} unidades de ${symbol} ejecutada a $${executionPrice.toFixed(2)}. Restan ${(existingLongPos.quantity - quantity).toFixed(4)} unidades.`,
+          ? `${prefixMsg}Posición comprada en ${symbol} cerrada en su totalidad a $${executionPrice.toFixed(2)}.`
+          : `${prefixMsg}Venta parcial de ${quantity} unidades de ${symbol} ejecutada a $${executionPrice.toFixed(2)}. Restan ${(existingLongPos.quantity - quantity).toFixed(4)} unidades.`,
       };
     } else {
       // Apertura de posición (BUY o SHORT si permitido)
+      // Garantizar solvencia computando capital comprometido en órdenes pendientes
+      if (orderSide === "BUY") {
+        await checkBuySolvency(
+          db,
+          gameId,
+          groupId,
+          initialCap,
+          quote.asset_type,
+          quantity,
+          executionPrice,
+          leverage,
+          "ejecutar orden de compra"
+        );
+      }
+
       const openResult = await executeOpenPositionOperation(
         db,
         gameId,
@@ -775,13 +802,17 @@ export async function createPaperOrder(
         success: true,
         orderId,
         isFilled: true,
+        isMarketableLimit,
+        status: "FILLED",
         orderType,
         orderSide,
         executedPrice: executionPrice,
         quantity,
         tradeId: openResult.tradeId,
         positionId: openResult.positionId,
-        message: `Orden ${orderType} ${orderSide} de ${quantity} ${symbol} ejecutada a $${executionPrice.toFixed(2)}.`,
+        message: isMarketableLimit
+          ? `⚡ [Marketable Limit Fill] Orden Límite ${orderSide} de ${quantity} ${symbol} ejecutada de inmediato a $${executionPrice.toFixed(2)} por cruzar el mercado actual (Límite: $${limitPrice?.toFixed(2)}).`
+          : `Orden ${orderType} ${orderSide} de ${quantity} ${symbol} ejecutada a $${executionPrice.toFixed(2)}.`,
       };
     }
   }

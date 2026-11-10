@@ -51,6 +51,7 @@ export interface PortfolioRecord {
   total_fees: number;
   peak_equity?: number;
   max_drawdown_nominal?: number;
+  max_drawdown_pct?: number;
   updated_at: number;
 }
 
@@ -129,10 +130,35 @@ export interface LeaderboardEntry {
   roePct: number;
   peakEquity: number;
   maxDrawdownNominal: number;
+  maxDrawdownPct: number;
+  investedValue: number;
+  investedPct: number;
+  isFullyInvested: boolean;
+  complianceStatus?: "COMPLIANT" | "NON_COMPLIANT_CASH";
   openPositionsCount: number;
   rank: number;
   score?: number;
   rankingRule?: "PORTFOLIO" | "FUTURES" | string;
+}
+
+export interface DailySnapshotRecord {
+  id: string;
+  game_id: string;
+  user_id: string;
+  snapshot_date: string;
+  timestamp: number;
+  cash_balance: number;
+  invested_value: number;
+  nav: number;
+  peak_nav: number;
+  daily_dd_pct: number;
+  max_dd_pct: number;
+  daily_dd_nominal: number;
+  max_dd_nominal: number;
+  invested_pct: number;
+  is_fully_invested: number;
+  positions_json: string;
+  created_at: number;
 }
 
 export interface TournamentRecord {

@@ -46,7 +46,7 @@ export default async function PortfolioPage() {
         description="Construcción cuantitativa de carteras multiactivo, optimización de media-varianza de Markowitz, asset allocation estratégico y gestión integral del riesgo financiero."
       />
 
-      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 space-y-16 py-12 md:space-y-20 md:py-16">
+      <main className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10 space-y-16 py-12 md:space-y-20 md:py-16">
         {/* Pilares Metodológicos de Portfolio */}
         <section className="space-y-6">
           <SectionLabel

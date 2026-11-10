@@ -31,7 +31,7 @@ const defaultResources: ResourceItem[] = [
 export function ClubResources() {
   return (
     <section className="border-b border-[#e5e7eb] bg-[#f8fafc] py-12 sm:py-14 overflow-hidden">
-      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10">
         <div className="mb-8">
           <div className="flex items-center gap-2">
             <span className="h-[2px] w-5 bg-[#b89047]" />

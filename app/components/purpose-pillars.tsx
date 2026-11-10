@@ -28,7 +28,7 @@ const defaultPillars: PurposeRow[] = [
 export function PurposePillars() {
   return (
     <section className="border-b border-[#e5e7eb] bg-white py-14 sm:py-16 md:py-20 overflow-hidden">
-      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10">
         <div className="grid grid-cols-1 items-start gap-12 lg:grid-cols-[0.8fr_1.4fr] lg:gap-16">
           {/* Columna Izquierda Fija / Sticky */}
           <div className="lg:sticky lg:top-28">

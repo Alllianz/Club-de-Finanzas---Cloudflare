@@ -32,7 +32,7 @@ export default async function HomePage() {
 
         {/* 5. Novedades / Publicación Destacada Principal (Formato .featured horizontal) */}
         <section className="py-14 md:py-18 overflow-hidden">
-          <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10">
             <div className="mb-8 flex items-end justify-between">
               <div>
                 <div className="flex items-center gap-2">

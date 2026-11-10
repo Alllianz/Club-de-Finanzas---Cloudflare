@@ -77,6 +77,34 @@
   }
 }
 
+/* Contenedor Institucional Fluido (Desktop Amplio 94vw/1440px, Mobile Limpio y Seguro) */
+.club-container {
+  width: 100%;
+  max-width: min(1440px, 94vw);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+@media (min-width: 640px) {
+  .club-container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+@media (min-width: 1024px) {
+  .club-container {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+@media (min-width: 1280px) {
+  .club-container {
+    padding-left: 2.5rem;
+    padding-right: 2.5rem;
+  }
+}
+
 /* Tablas financieras con estilo del reporte */
 .table-custom {
   width: 100%;

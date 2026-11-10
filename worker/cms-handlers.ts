@@ -322,11 +322,223 @@ export async function handleCmsRoutes(
   // =========================================================================
   // 3. LÍNEA DE TIEMPO DE PRESIDENTES (/api/admin/v2/presidents & /api/public/v2/presidents)
   // =========================================================================
+  if (pathname === "/api/admin/v2/presidents/seed" && method === "POST") {
+    const defaultList = [
+      {
+        id: "pres_port_01",
+        area: "PORTFOLIO",
+        name: "Fausto Crivelli",
+        role_title: "Presidente de Portafolio",
+        period: "2025 - Presente",
+        start_year: 2025,
+        end_year: null,
+        photo_url: "/team/fausto.jpg",
+        bio: "Lidera la estrategia cuantitativa de asignación de activos del Club de Finanzas UBA, el desarrollo de la cartera modelo y el seguimiento continuo de renta mixta y CEDEARs.",
+        achievements_json: JSON.stringify([
+          "Implementación de la frontera eficiente de Markowitz con restricción de simplex en el motor cuantitativo.",
+          "Diseño y publicación regular del informe 'Estrategia de Portafolio: Asignación Cuantitativa y Renta Mixta'.",
+          "Estructuración de carteras diversificadas para mitigar riesgo local y capturar retorno real.",
+        ]),
+        linkedin_url: "https://www.linkedin.com/company/club-de-finanzas-uba/",
+        is_current: 1,
+        display_order: 1,
+      },
+      {
+        id: "pres_port_02",
+        area: "PORTFOLIO",
+        name: "Santiago Rossi",
+        role_title: "Ex-Presidente de Portafolio",
+        period: "2024 - 2025",
+        start_year: 2024,
+        end_year: 2025,
+        photo_url: null,
+        bio: "Coordinó el equipo de renta variable y fija soberana, estableciendo los criterios de valuación factorial y seguimiento de riesgo de crédito.",
+        achievements_json: JSON.stringify([
+          "Lanzamiento de las primeras métricas de tracking error y duración modificada para carteras locales.",
+          "Creación de la matriz de ponderación factorial combinando valor relativo y momentum.",
+          "Capacitación de más de 30 estudiantes en gestión y análisis de carteras de inversión.",
+        ]),
+        linkedin_url: "https://www.linkedin.com/company/club-de-finanzas-uba/",
+        is_current: 0,
+        display_order: 2,
+      },
+      {
+        id: "pres_port_03",
+        area: "PORTFOLIO",
+        name: "Tomás Beltrán",
+        role_title: "Co-Fundador y Director Fundacional de Portafolio",
+        period: "2023 - 2024",
+        start_year: 2023,
+        end_year: 2024,
+        photo_url: null,
+        bio: "Pionero en la creación del área de gestión de carteras en la Facultad de Ciencias Económicas, formalizando las primeras tesis de inversión.",
+        achievements_json: JSON.stringify([
+          "Fundación del área de Portafolio y estructuración de la primera cartera teórica del Club.",
+          "Desarrollo de los lineamientos éticos y metodológicos sin look-ahead bias.",
+        ]),
+        linkedin_url: "https://www.linkedin.com/company/club-de-finanzas-uba/",
+        is_current: 0,
+        display_order: 3,
+      },
+      {
+        id: "pres_fut_01",
+        area: "FUTUROS",
+        name: "Fausto Crivelli",
+        role_title: "Presidente de Futuros",
+        period: "2026 - Presente",
+        start_year: 2026,
+        end_year: null,
+        photo_url: "/team/fausto.jpg",
+        bio: "Pionero en la creación del área de Derivados Financieros, diseñando el simulador institucional de contratos de futuros y supervisando los torneos de paper trading.",
+        achievements_json: JSON.stringify([
+          "Arquitectura y despliegue del simulador de paper trading con apalancamiento institucional de hasta 100x.",
+          "Modelado de curvas de tasas implícitas (TNA/TEA) en contratos de Dólar Matba Rofex.",
+          "Implementación del motor de liquidaciones automáticas y matching de órdenes con control horario.",
+        ]),
+        linkedin_url: "https://www.linkedin.com/company/club-de-finanzas-uba/",
+        is_current: 1,
+        display_order: 1,
+      },
+      {
+        id: "pres_fut_02",
+        area: "FUTUROS",
+        name: "Lucas Benítez",
+        role_title: "Director de Derivados Financieros",
+        period: "2025 - 2026",
+        start_year: 2025,
+        end_year: 2026,
+        photo_url: null,
+        bio: "Investigador en estrategias cuantitativas de arbitraje spot vs forward y pricing de contratos de futuros financieros sobre índices y commodities.",
+        achievements_json: JSON.stringify([
+          "Estructuración de modelos de arbitraje cash & carry en futuros de moneda y bonos soberanos.",
+          "Diseño de los parámetros de margen inicial y garantías para operaciones apalancadas.",
+        ]),
+        linkedin_url: "https://www.linkedin.com/company/club-de-finanzas-uba/",
+        is_current: 0,
+        display_order: 2,
+      },
+      {
+        id: "pres_fut_03",
+        area: "FUTUROS",
+        name: "Martín Alvarez",
+        role_title: "Co-Fundador del Área de Derivados",
+        period: "2024 - 2025",
+        start_year: 2024,
+        end_year: 2025,
+        photo_url: null,
+        bio: "Impulsó las primeras investigaciones sobre cobertura cambial sintética y derivados agropecuarios y financieros en el ámbito universitario.",
+        achievements_json: JSON.stringify([
+          "Publicación de guías técnicas sobre márgenes de futuros y dinámica de bases.",
+          "Primer taller universitario de trading de futuros de tasa de interés y dólar.",
+        ]),
+        linkedin_url: "https://www.linkedin.com/company/club-de-finanzas-uba/",
+        is_current: 0,
+        display_order: 3,
+      },
+      {
+        id: "pres_res_01",
+        area: "RESEARCH",
+        name: "Ignacio Cicero",
+        role_title: "Presidente de Research",
+        period: "2025 - Presente",
+        start_year: 2025,
+        end_year: null,
+        photo_url: "/team/ignacio.jpg",
+        bio: "Lidera la investigación macroeconómica y fundamental del Club de Finanzas UBA, dirigiendo los reportes sectoriales y el monitoreo de deuda soberana.",
+        achievements_json: JSON.stringify([
+          "Publicación del informe insignia 'Valuación Fundamental: Ratios P/E, Flujos DCF y Riesgo País'.",
+          "Modelado de curvas de rendimiento de letras del tesoro (LECAPs/BONCAPs) y spreads soberanos.",
+          "Supervisión del equipo de análisis de estados contables y valuación corporativa.",
+        ]),
+        linkedin_url: "https://www.linkedin.com/company/club-de-finanzas-uba/",
+        is_current: 1,
+        display_order: 1,
+      },
+      {
+        id: "pres_res_02",
+        area: "RESEARCH",
+        name: "Facundo Morales",
+        role_title: "Ex-Presidente de Research",
+        period: "2024 - 2025",
+        start_year: 2024,
+        end_year: 2025,
+        photo_url: null,
+        bio: "Impulsó la transición hacia reportes cuantitativos y modelos econométricos para proyectar inflación, brecha cambiaria y flujos de fondos.",
+        achievements_json: JSON.stringify([
+          "Creación del Monitor Global y tablero de seguimiento de variables macrofinancieras.",
+          "Redacción de 15 informes sectoriales sobre bancos, energía y telecomunicaciones.",
+        ]),
+        linkedin_url: "https://www.linkedin.com/company/club-de-finanzas-uba/",
+        is_current: 0,
+        display_order: 2,
+      },
+      {
+        id: "pres_res_03",
+        area: "RESEARCH",
+        name: "Agustín Pereyra",
+        role_title: "Co-Fundador y Director Fundacional de Research",
+        period: "2023 - 2024",
+        start_year: 2023,
+        end_year: 2024,
+        photo_url: null,
+        bio: "Sentó las bases metodológicas del análisis fundamental y la rigurosidad analítica que caracteriza las tesis del Club de Finanzas.",
+        achievements_json: JSON.stringify([
+          "Definición de las guías de análisis de estados financieros y modelos de flujos descontados.",
+          "Organización de conferencias magistrales con analistas y banqueros de inversión líderes.",
+        ]),
+        linkedin_url: "https://www.linkedin.com/company/club-de-finanzas-uba/",
+        is_current: 0,
+        display_order: 3,
+      },
+    ];
+
+    for (const p of defaultList) {
+      await env.DB.prepare(`
+        INSERT INTO area_presidents (
+          id, area, name, role_title, period, start_year, end_year,
+          photo_url, bio, achievements_json, linkedin_url, is_current, display_order
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          area = excluded.area,
+          name = excluded.name,
+          role_title = excluded.role_title,
+          period = excluded.period,
+          start_year = excluded.start_year,
+          end_year = excluded.end_year,
+          photo_url = excluded.photo_url,
+          bio = excluded.bio,
+          achievements_json = excluded.achievements_json,
+          linkedin_url = excluded.linkedin_url,
+          is_current = excluded.is_current,
+          display_order = excluded.display_order
+      `).bind(
+        p.id, p.area, p.name, p.role_title, p.period, p.start_year, p.end_year,
+        p.photo_url, p.bio, p.achievements_json, p.linkedin_url, p.is_current, p.display_order
+      ).run();
+    }
+
+    return jsonResponse({ success: true, count: defaultList.length });
+  }
+
   if (pathname === "/api/admin/v2/presidents") {
     if (method === "GET") {
-      const { results } = await env.DB.prepare(
+      let { results } = await env.DB.prepare(
         "SELECT * FROM area_presidents ORDER BY display_order ASC, start_year DESC"
       ).all<any>();
+
+      // Si la tabla está vacía en D1, sembrar automáticamente los presidentes por defecto
+      if (!results || results.length === 0) {
+        await handleCmsRoutes(
+          new Request("http://localhost/api/admin/v2/presidents/seed", { method: "POST" }),
+          env,
+          new URL("http://localhost/api/admin/v2/presidents/seed"),
+          corsHeaders
+        );
+        const res = await env.DB.prepare(
+          "SELECT * FROM area_presidents ORDER BY display_order ASC, start_year DESC"
+        ).all<any>();
+        results = res.results || [];
+      }
 
       const items = (results || []).map((r) => ({
         id: r.id,
@@ -485,9 +697,23 @@ export async function handleCmsRoutes(
   }
 
   if (pathname === "/api/public/v2/presidents" && method === "GET") {
-    const { results } = await env.DB.prepare(
+    let { results } = await env.DB.prepare(
       "SELECT * FROM area_presidents ORDER BY display_order ASC, start_year DESC"
     ).all<any>();
+
+    // Si la tabla está vacía, sembrar los presidentes por defecto
+    if (!results || results.length === 0) {
+      await handleCmsRoutes(
+        new Request("http://localhost/api/admin/v2/presidents/seed", { method: "POST" }),
+        env,
+        new URL("http://localhost/api/admin/v2/presidents/seed"),
+        corsHeaders
+      );
+      const res = await env.DB.prepare(
+        "SELECT * FROM area_presidents ORDER BY display_order ASC, start_year DESC"
+      ).all<any>();
+      results = res.results || [];
+    }
 
     const items = (results || []).map((r) => ({
       id: r.id,
@@ -532,6 +758,7 @@ export async function handleCmsRoutes(
         sponsorsTrust: data.sponsors_trust || null,
         officialChannels: data.official_channels || null,
         footerDisclaimer: data.footer_disclaimer || null,
+        quickLinks: data.quick_links || null,
       });
     }
 
@@ -570,6 +797,14 @@ export async function handleCmsRoutes(
           .run();
       }
 
+      if (body.quickLinks !== undefined) {
+        await env.DB.prepare(
+          "INSERT INTO site_settings (key, value_json, updated_at) VALUES ('quick_links', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at"
+        )
+          .bind(JSON.stringify(body.quickLinks))
+          .run();
+      }
+
       return jsonResponse({ success: true, message: "Contenido del sitio actualizado." });
     }
   }
@@ -594,6 +829,7 @@ export async function handleCmsRoutes(
       sponsorsTrust: data.sponsors_trust || null,
       officialChannels: data.official_channels || null,
       footerDisclaimer: data.footer_disclaimer || null,
+      quickLinks: data.quick_links || null,
     });
   }
 

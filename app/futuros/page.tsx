@@ -60,7 +60,7 @@ export default async function FuturosPage() {
         }
       />
 
-      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 space-y-16 py-12 md:space-y-20 md:py-16">
+      <main className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10 space-y-16 py-12 md:space-y-20 md:py-16">
         {/* Pilares Metodológicos de Futuros */}
         <section className="space-y-8">
           <SectionLabel

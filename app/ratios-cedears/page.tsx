@@ -11,7 +11,7 @@ export default function RatiosCedearsPage() {
         description="Buscador en tiempo real de ratios de conversión y mercados de cotización para más de 400 certificados de depósito argentinos."
       />
 
-      <main className="mx-auto w-[min(1240px,92vw)] space-y-8 py-12 md:py-16">
+      <main className="mx-auto w-full max-w-[min(1440px,94vw)] px-4 sm:px-6 lg:px-8 xl:px-10 space-y-8 py-12 md:py-16">
         <SectionLabel
           eyebrow="Base Oficial BYMA"
           title="Tabla de Ratios de Conversión"
