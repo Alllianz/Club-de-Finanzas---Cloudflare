@@ -38,13 +38,26 @@ export const PortfolioOverviewCard: React.FC = () => {
   const isFullyInvested = investedPct >= 95.0;
   const remainingToInvest = Math.max(0, equity * 0.95 - investedValue);
 
-  const netProfit = equity - baseCapital;
   const investmentFactor = isFullyInvested ? 1.0 : Math.pow(Math.max(0, investedPct) / 95.0, 2);
-  const effectiveDd = Math.max(0.01, maxDdPct);
+  const dailyNominalPnl =
+    portfolio?.dailyNominalPnl ??
+    portfolio?.daily_nominal_pnl ??
+    (equity - baseCapital);
+  const hasZeroDrawdown = Boolean(
+    portfolio?.hasZeroDrawdown ??
+    portfolio?.has_zero_drawdown ??
+    (maxDdNominal <= 0 && dailyNominalPnl > 0)
+  );
+  const calculatedScore =
+    maxDdNominal > 0
+      ? (dailyNominalPnl / maxDdNominal) * investmentFactor
+      : dailyNominalPnl > 0
+      ? dailyNominalPnl * investmentFactor
+      : 0.0;
   const portfolioScore =
-    netProfit >= 0
-      ? (netProfit / effectiveDd) * investmentFactor
-      : (netProfit / effectiveDd) / Math.max(0.05, investmentFactor);
+    portfolio?.score !== undefined && Number.isFinite(portfolio.score)
+      ? portfolio.score
+      : calculatedScore;
 
   const isRoePositive = roePct >= 0;
   const isUnrealizedPositive = unrealized >= 0;
@@ -61,9 +74,9 @@ export const PortfolioOverviewCard: React.FC = () => {
             {!isFutures ? (
               <span
                 className="rounded-md bg-amber-50 border border-amber-300 px-2.5 py-0.5 text-[10px] font-bold text-amber-900"
-                title="Fórmula oficial: ((Capital Total - Capital Inicial) / Max DD %) * Factor Inversión"
+                title="Fórmula oficial: PNL Nominal Diario / Máx Drawdown Nominal"
               >
-                Score Torneo: {portfolioScore > 900 ? "∞ (Sin DD)" : `${portfolioScore >= 0 ? "+" : ""}${portfolioScore.toFixed(2)}x`} (Retorno / DD)
+                Score Torneo: {hasZeroDrawdown ? "∞ (Sin DD)" : `${portfolioScore >= 0 ? "+" : ""}${portfolioScore.toFixed(2)}x`} (Retorno / DD)
               </span>
             ) : (
               <span className="rounded-md bg-blue-50 border border-blue-200 px-2.5 py-0.5 text-[10px] font-bold text-blue-900">
@@ -178,7 +191,7 @@ export const PortfolioOverviewCard: React.FC = () => {
             <span>Pico: ${peakEquity.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
             {!isFutures && (
               <span className="font-semibold text-indigo-700 font-mono">
-                Ratio: {portfolioScore > 900 ? "∞" : `${portfolioScore >= 0 ? "+" : ""}${portfolioScore.toFixed(2)}x`}
+                Ratio: {hasZeroDrawdown ? "∞ (Sin DD)" : `${portfolioScore >= 0 ? "+" : ""}${portfolioScore.toFixed(2)}x`}
               </span>
             )}
           </div>

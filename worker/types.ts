@@ -52,6 +52,11 @@ export interface PortfolioRecord {
   peak_equity?: number;
   max_drawdown_nominal?: number;
   max_drawdown_pct?: number;
+  score?: number;
+  daily_nominal_pnl?: number;
+  has_zero_drawdown?: boolean;
+  dailyNominalPnl?: number;
+  hasZeroDrawdown?: boolean;
   updated_at: number;
 }
 
@@ -138,6 +143,8 @@ export interface LeaderboardEntry {
   openPositionsCount: number;
   rank: number;
   score?: number;
+  dailyNominalPnl?: number;
+  hasZeroDrawdown?: boolean;
   rankingRule?: "PORTFOLIO" | "FUTURES" | string;
 }
 
@@ -159,6 +166,8 @@ export interface DailySnapshotRecord {
   is_fully_invested: number;
   positions_json: string;
   created_at: number;
+  nominal_pnl?: number;
+  score?: number;
 }
 
 export interface TournamentRecord {

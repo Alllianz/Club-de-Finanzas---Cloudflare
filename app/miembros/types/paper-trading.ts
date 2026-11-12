@@ -35,6 +35,11 @@ export interface GroupPortfolio {
   invested_value?: number;
   invested_pct?: number;
   is_fully_invested?: boolean;
+  score?: number;
+  dailyNominalPnl?: number;
+  hasZeroDrawdown?: boolean;
+  daily_nominal_pnl?: number;
+  has_zero_drawdown?: boolean;
   updated_at: number;
 }
 
@@ -121,6 +126,8 @@ export interface LeaderboardItem {
   openPositionsCount: number;
   rank: number;
   score?: number;
+  dailyNominalPnl?: number;
+  hasZeroDrawdown?: boolean;
   rankingRule?: "PORTFOLIO" | "FUTURES" | string;
 }
 

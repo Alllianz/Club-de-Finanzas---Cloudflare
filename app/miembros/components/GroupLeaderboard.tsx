@@ -57,8 +57,11 @@ export const GroupLeaderboard: React.FC = () => {
                   1° Puesto: Mayor Capital Total
                 </span>
               ) : (
-                <span className="rounded-full bg-emerald-50 border border-emerald-300 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800">
-                  1° Puesto: (Capital Total − Cap. Inicial) / Max DD
+                <span
+                  className="rounded-full bg-emerald-50 border border-emerald-300 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800"
+                  title="Fórmula oficial: PNL Nominal Diario / Máx Drawdown Nominal"
+                >
+                  1° Puesto: PNL Nominal Diario / Máx Drawdown Nominal
                 </span>
               )}
             </div>
@@ -68,7 +71,7 @@ export const GroupLeaderboard: React.FC = () => {
             <p className="mt-1 text-xs text-[#64748b]">
               {isFutures
                 ? "Competencia de trading apalancado y cobertura. Gana el equipo con mayor Capital Total (Equity)."
-                : "Competencia de asignación y gestión de riesgo. Gana el equipo con mayor retorno relativo al Máximo Drawdown."}
+                : "Competencia de asignación y gestión de riesgo. Gana el equipo con mayor PNL Nominal Diario / Máx Drawdown Nominal."}
             </p>
           </div>
 
@@ -89,7 +92,10 @@ export const GroupLeaderboard: React.FC = () => {
                   Patrimonio (Equity) {isFutures && <span className="text-amber-600">★ Criterio 1°</span>}
                 </th>
                 {!isFutures && (
-                  <th className="py-3 px-3 bg-amber-50/50 text-[#1e3a8a]">
+                  <th
+                    className="py-3 px-3 bg-amber-50/50 text-[#1e3a8a]"
+                    title="PNL Nominal Diario / Máx Drawdown Nominal"
+                  >
                     Score Retorno/DD <span className="text-amber-600">★ Criterio 1°</span>
                   </th>
                 )}
@@ -217,21 +223,35 @@ export const GroupLeaderboard: React.FC = () => {
 
                     {!isFutures && (
                       <td className="py-3.5 px-3 font-mono font-bold bg-amber-50/30">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-bold ${
-                            (item.score ?? 0) > 0
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                              : (item.score ?? 0) < 0
-                              ? "bg-red-50 text-red-700 border border-red-200"
-                              : "bg-slate-100 text-slate-700 border border-slate-200"
-                          }`}
-                        >
-                          {item.score !== undefined
-                            ? item.score > 900
-                              ? "∞ (Sin DD)"
-                              : `${item.score >= 0 ? "+" : ""}${item.score.toFixed(2)}x`
-                            : "0.00x"}
-                        </span>
+                        {(() => {
+                          const hasZeroDd = Boolean(
+                            item.hasZeroDrawdown ||
+                            ((item.maxDrawdownNominal ?? 0) <= 0 && (item.dailyNominalPnl ?? (item.equity - item.initialCapital)) > 0)
+                          );
+                          const scoreVal = item.score ?? 0;
+                          return (
+                            <span
+                              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-bold ${
+                                hasZeroDd || scoreVal > 0
+                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  : scoreVal < 0
+                                  ? "bg-red-50 text-red-700 border border-red-200"
+                                  : "bg-slate-100 text-slate-700 border border-slate-200"
+                              }`}
+                              title={
+                                hasZeroDd
+                                  ? `Sin Drawdown nominal (PNL Nominal Diario: +$${(item.dailyNominalPnl ?? (item.equity - item.initialCapital)).toFixed(2)} USD)`
+                                  : `Score: ${scoreVal.toFixed(4)}x (PNL Nominal Diario / Máx Drawdown Nominal)`
+                              }
+                            >
+                              {hasZeroDd
+                                ? "∞ (Sin DD)"
+                                : item.score !== undefined
+                                ? `${scoreVal >= 0 ? "+" : ""}${scoreVal.toFixed(2)}x`
+                                : "0.00x"}
+                            </span>
+                          );
+                        })()}
                       </td>
                     )}
 

@@ -90,6 +90,8 @@ export async function ensureDailySnapshotsTable(db: D1Database): Promise<void> {
           is_fully_invested INTEGER NOT NULL,
           positions_json TEXT NOT NULL,
           created_at INTEGER NOT NULL,
+          nominal_pnl REAL DEFAULT 0.0,
+          score REAL DEFAULT 0.0,
           UNIQUE(game_id, user_id, snapshot_date)
         )`
       )
@@ -101,6 +103,15 @@ export async function ensureDailySnapshotsTable(db: D1Database): Promise<void> {
          ON portfolio_daily_snapshots(game_id, user_id, snapshot_date DESC)`
       )
       .run();
+
+    try {
+      await db.prepare("ALTER TABLE portfolio_daily_snapshots ADD COLUMN nominal_pnl REAL DEFAULT 0.0").run();
+    } catch {
+    }
+    try {
+      await db.prepare("ALTER TABLE portfolio_daily_snapshots ADD COLUMN score REAL DEFAULT 0.0").run();
+    } catch {
+    }
 
     try {
       await db.prepare("ALTER TABLE paper_portfolios ADD COLUMN max_drawdown_pct REAL DEFAULT 0.0").run();
@@ -273,6 +284,18 @@ export async function processDailyMarketCloseSnapshot(
 
       const investedPct = nav > 1e-6 ? Math.min(100, Math.max(0, (investedValue / nav) * 100)) : 0.0;
       const isFullyInvested = investedPct >= 95.0 ? 1 : 0;
+      const nominalPnl = nav - initialCap;
+      const investmentFactor = isFullyInvested === 1 ? 1.0 : Math.pow(Math.max(0, investedPct) / 95.0, 2);
+      let snapshotScore = 0.0;
+      if (maxDdNominal > 0) {
+        const raw = (nominalPnl / maxDdNominal) * investmentFactor;
+        snapshotScore = Number.isFinite(raw) ? raw : 0.0;
+      } else if (nominalPnl > 0) {
+        const raw = nominalPnl * investmentFactor;
+        snapshotScore = Number.isFinite(raw) ? raw : 0.0;
+      } else {
+        snapshotScore = 0.0;
+      }
 
       const positionsJson = JSON.stringify(
         positions.map((p) => ({
@@ -304,6 +327,8 @@ export async function processDailyMarketCloseSnapshot(
         is_fully_invested: isFullyInvested,
         positions_json: positionsJson,
         created_at: nowMs,
+        nominal_pnl: nominalPnl,
+        score: snapshotScore,
       };
 
       await db
@@ -312,8 +337,9 @@ export async function processDailyMarketCloseSnapshot(
              id, game_id, user_id, snapshot_date, timestamp,
              cash_balance, invested_value, nav, peak_nav,
              daily_dd_pct, max_dd_pct, daily_dd_nominal, max_dd_nominal,
-             invested_pct, is_fully_invested, positions_json, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             invested_pct, is_fully_invested, positions_json, created_at,
+             nominal_pnl, score
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(game_id, user_id, snapshot_date) DO UPDATE SET
              timestamp = excluded.timestamp,
              cash_balance = excluded.cash_balance,
@@ -326,7 +352,9 @@ export async function processDailyMarketCloseSnapshot(
              max_dd_nominal = excluded.max_dd_nominal,
              invested_pct = excluded.invested_pct,
              is_fully_invested = excluded.is_fully_invested,
-             positions_json = excluded.positions_json`
+             positions_json = excluded.positions_json,
+             nominal_pnl = excluded.nominal_pnl,
+             score = excluded.score`
         )
         .bind(
           snapshotId,
@@ -345,7 +373,9 @@ export async function processDailyMarketCloseSnapshot(
           investedPct,
           isFullyInvested,
           positionsJson,
-          nowMs
+          nowMs,
+          nominalPnl,
+          snapshotScore
         )
         .run();
 

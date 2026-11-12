@@ -1,12 +1,13 @@
 // Motor Cuantitativo y Reglas de Negocio de Paper Trading
 // Basado en Aegis Engine - Zero Look-Ahead Bias
 
-import { D1Database, PortfolioRecord, PositionRecord, TradeRecord, LeaderboardEntry, TournamentRecord } from "./types";
+import { D1Database, PortfolioRecord, PositionRecord, TradeRecord, LeaderboardEntry, TournamentRecord, DailySnapshotRecord } from "./types";
 import { fetchLiveMarketQuote } from "./market-feed";
 import { OFFICIAL_GROUPS } from "./group-auth";
 import { checkTournamentDateRange, parseTournamentDateBoundary, formatTournamentDate } from "./tournament-dates";
 export { checkTournamentDateRange, parseTournamentDateBoundary, formatTournamentDate };
-export { ensureFutures15mSnapshotsTable, processFutures15mSnapshots, getEquityCurveSeries } from "./daily-snapshot-engine";
+export { ensureFutures15mSnapshotsTable, processFutures15mSnapshots, getEquityCurveSeries, getLatestDailySnapshot, ensureDailySnapshotsTable } from "./daily-snapshot-engine";
+import { getLatestDailySnapshot, ensureDailySnapshotsTable } from "./daily-snapshot-engine";
 
 export const DEFAULT_GAME_ID = "torneo-club-2026";
 export const DEFAULT_FUTURES_GAME_ID = "torneo-futuros-2026";
@@ -224,7 +225,6 @@ export async function getMarkedPortfolio(
     maxDdPct = liveDdPct;
   }
 
-  // Métricas de asignación y Cartera 100% Invertida (umbral 95.0%)
   const investedValue = markedPositions.reduce(
     (acc, p) => acc + (p.quantity * (p.current_price || p.entry_price)),
     0
@@ -232,7 +232,6 @@ export async function getMarkedPortfolio(
   const investedPct = equity > 1e-6 ? Math.min(100, Math.max(0, (investedValue / equity) * 100)) : 0.0;
   const isFullyInvested = investedPct >= 95.0;
 
-  // Persistir estado de Drawdown y pico actualizado en segundo plano
   try {
     await db
       .prepare(
@@ -249,7 +248,63 @@ export async function getMarkedPortfolio(
         .bind(peak, maxDdNominal, Date.now(), gameId, groupId)
         .run();
     } catch {
-      // Silencioso
+    }
+  }
+
+  let latestSnap: DailySnapshotRecord | null = null;
+  if (!isFutures) {
+    try {
+      latestSnap = await getLatestDailySnapshot(db, gameId, groupId);
+    } catch {
+      try {
+        await ensureDailySnapshotsTable(db);
+        latestSnap = await getLatestDailySnapshot(db, gameId, groupId);
+      } catch {}
+    }
+  }
+
+  if (latestSnap?.max_dd_nominal && Number(latestSnap.max_dd_nominal) > maxDdNominal) {
+    maxDdNominal = Number(latestSnap.max_dd_nominal);
+  }
+  if (!Number.isFinite(maxDdNominal) || maxDdNominal < 0) {
+    maxDdNominal = 0.0;
+  }
+
+  const investmentFactor = isFullyInvested ? 1.0 : Math.pow(Math.max(0, investedPct) / 95.0, 2);
+
+  let dailyNominalPnl = 0.0;
+  if (!isFutures) {
+    if (latestSnap != null) {
+      if (typeof latestSnap.nominal_pnl === "number") {
+        dailyNominalPnl = latestSnap.nominal_pnl;
+      } else {
+        dailyNominalPnl = Number(latestSnap.nav) - initialCap;
+      }
+    } else {
+      dailyNominalPnl = 0.0;
+    }
+  } else {
+    dailyNominalPnl = equity - initialCap;
+  }
+  if (!Number.isFinite(dailyNominalPnl)) {
+    dailyNominalPnl = 0.0;
+  }
+
+  const hasZeroDrawdown = maxDdNominal <= 0 && dailyNominalPnl > 0;
+
+  let score = 0.0;
+  if (isFutures) {
+    const raw = equity * investmentFactor;
+    score = Number.isFinite(raw) ? raw : 0.0;
+  } else {
+    if (maxDdNominal > 0) {
+      const raw = (dailyNominalPnl / maxDdNominal) * investmentFactor;
+      score = Number.isFinite(raw) ? raw : 0.0;
+    } else if (dailyNominalPnl > 0) {
+      const raw = dailyNominalPnl * investmentFactor;
+      score = Number.isFinite(raw) ? raw : 0.0;
+    } else {
+      score = 0.0;
     }
   }
 
@@ -267,7 +322,15 @@ export async function getMarkedPortfolio(
       invested_value: investedValue,
       invested_pct: investedPct,
       is_fully_invested: isFullyInvested,
+      score,
+      dailyNominalPnl,
+      hasZeroDrawdown,
+      daily_nominal_pnl: dailyNominalPnl,
+      has_zero_drawdown: hasZeroDrawdown,
     },
+    score,
+    dailyNominalPnl,
+    hasZeroDrawdown,
     positions: markedPositions,
   };
 }
@@ -780,21 +843,9 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string, mark
       const investedPct = data.portfolio.invested_pct ?? (eq > 1e-6 ? Math.min(100, Math.max(0, (investedValue / eq) * 100)) : 0.0);
       const isFullyInvested = investedPct >= 95.0;
       const complianceStatus: "COMPLIANT" | "NON_COMPLIANT_CASH" = isFullyInvested ? "COMPLIANT" : "NON_COMPLIANT_CASH";
-      const netProfit = eq - initialCap;
-
-      const investmentFactor = isFullyInvested ? 1.0 : Math.pow(Math.max(0, investedPct) / 95.0, 2);
-
-      let score = 0;
-      if (isFutures) {
-        score = eq * investmentFactor;
-      } else {
-        const effectiveDd = Math.max(1.0, maxDdPct);
-        if (netProfit >= 0) {
-          score = (netProfit / effectiveDd) * investmentFactor;
-        } else {
-          score = (netProfit / effectiveDd) / Math.max(0.05, investmentFactor);
-        }
-      }
+      const score = data.portfolio.score ?? 0.0;
+      const dailyNominalPnl = data.portfolio.dailyNominalPnl ?? 0.0;
+      const hasZeroDrawdown = Boolean(data.portfolio.hasZeroDrawdown);
 
       leaderboard.push({
         groupId: group.id,
@@ -817,6 +868,8 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string, mark
         openPositionsCount: data.positions.length,
         rank: 0,
         score,
+        dailyNominalPnl,
+        hasZeroDrawdown,
         rankingRule,
       });
     } catch {
@@ -842,18 +895,22 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string, mark
         openPositionsCount: 0,
         rank: 0,
         score: defaultScore,
+        dailyNominalPnl: 0.0,
+        hasZeroDrawdown: false,
         rankingRule,
       });
     }
   }
 
-  // Ordenamiento oficial:
-  // - En Futuros: Por Capital Total (equity) descendente
-  // - En Portafolio: Por Score (Capital Total - Capital Inicial) / Max Drawdown descendente, con desempate por equity
   if (isFutures) {
     leaderboard.sort((a, b) => b.equity - a.equity);
   } else {
     leaderboard.sort((a, b) => {
+      const aZero = Boolean(a.hasZeroDrawdown);
+      const bZero = Boolean(b.hasZeroDrawdown);
+      if (aZero !== bZero) {
+        return aZero ? -1 : 1;
+      }
       const scoreDiff = (b.score ?? 0) - (a.score ?? 0);
       if (Math.abs(scoreDiff) > 1e-9) {
         return scoreDiff;
