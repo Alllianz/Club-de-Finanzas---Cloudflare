@@ -980,9 +980,9 @@ export async function ensureTournamentTypeMigration(db: D1Database) {
         .bind(
           DEFAULT_FUTURES_GAME_ID,
           "Competencia Oficial de Futuros & Derivados - Club de Finanzas UBA",
-          "Torneo de Paper Trading en derivados enfocado en futuros Matba Rofex, commodities CME, índices y cripto perpetuos.",
+          "Torneo de Paper Trading en derivados enfocado en Binance / Derivados, commodities CME, índices y cripto perpetuos.",
           nowMs,
-          "DLR-ABR26,DLR-MAY26,DLR-JUN26,CL=F,GC=F,ZS=F,ES=F,NQ=F,BTC-USD,ETH-USD"
+          "USDTARS,CL=F,GC=F,ZS=F,ES=F,NQ=F,BTC-USD,ETH-USD"
         )
         .run();
 
@@ -1009,6 +1009,13 @@ export async function ensureTournamentTypeMigration(db: D1Database) {
     await db
       .prepare(
         "UPDATE games SET max_leverage = 100 WHERE (tournament_type = 'FUTURES' OR id = ?) AND max_leverage < 100"
+      )
+      .bind(DEFAULT_FUTURES_GAME_ID)
+      .run();
+
+    await db
+      .prepare(
+        "UPDATE games SET description = 'Torneo de Paper Trading en derivados enfocado en Binance / Derivados, commodities CME, índices y cripto perpetuos.', allowed_symbols = 'USDTARS,CL=F,GC=F,ZS=F,ES=F,NQ=F,BTC-USD,ETH-USD' WHERE id = ? AND allowed_symbols LIKE '%DLR%'"
       )
       .bind(DEFAULT_FUTURES_GAME_ID)
       .run();

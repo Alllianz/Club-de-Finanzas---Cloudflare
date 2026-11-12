@@ -1,10 +1,7 @@
-// Servicio Modular de Precios en Tiempo Real (WebSocket Ultra-Baja Latencia)
-// Arquitectura Aegis - Zero Look-Ahead Bias
-
 export interface RealtimePriceTick {
-  symbol: string;         // Ej: "BTC-USD"
-  price: number;          // Precio spot actual
-  change24hPct: number;   // Variación 24h %
+  symbol: string;
+  price: number;
+  change24hPct: number;
   high24h?: number;
   low24h?: number;
   timestampMs: number;
@@ -21,7 +18,6 @@ class RealtimePriceStreamService {
   private isConnecting: boolean = false;
   private latestTicks: Map<string, RealtimePriceTick> = new Map();
 
-  // Mapeo entre símbolos del club y streams de Binance
   private symbolToStreamMap: Record<string, string> = {
     "BTC-USD": "btcusdt@ticker",
     "BTC": "btcusdt@ticker",
@@ -35,45 +31,59 @@ class RealtimePriceStreamService {
     "BNB-USD": "bnbusdt@ticker",
     "BNB": "bnbusdt@ticker",
     "BNBUSDT": "bnbusdt@ticker",
+    "USDTARS": "usdtars@ticker",
+    "USDT-ARS": "usdtars@ticker",
+    "PAXGUSDT": "paxgusdt@ticker",
+    "PAXG-USDT": "paxgusdt@ticker",
+    "PAXG": "paxgusdt@ticker",
   };
 
   private streamToSymbolMap: Record<string, string> = {
-    "BTCUSDT": "BTC-USD",
-    "ETHUSDT": "ETH-USD",
-    "SOLUSDT": "SOL-USD",
-    "BNBUSDT": "BNB-USD",
+    "BTCUSDT": "BTCUSDT",
+    "ETHUSDT": "ETHUSDT",
+    "SOLUSDT": "SOLUSDT",
+    "BNBUSDT": "BNBUSDT",
+    "USDTARS": "USDTARS",
+    "PAXGUSDT": "PAXGUSDT",
   };
 
   constructor() {
-    // Inicializar streams por defecto
     Object.values(this.symbolToStreamMap).forEach((st) => this.subscribedStreams.add(st));
     this.startBroadcastInterval();
   }
 
-  /**
-   * Ciclo de despacho cada 10 segundos: envía a todos los escuchas el precio más reciente actualizado
-   */
   private startBroadcastInterval() {
     if (typeof window === "undefined") return;
     if (this.broadcastIntervalTimer) return;
 
     this.broadcastIntervalTimer = setInterval(() => {
       this.dispatchLatestTicks();
-    }, 10000); // 10 segundos exactos requeridos por Allianz
+    }, 10000);
   }
 
   private dispatchLatestTicks() {
     this.listeners.forEach((_, symbol) => {
-      const latest = this.latestTicks.get(symbol);
+      const latest = this.getLatest(symbol);
       if (latest) {
         this.notifyListeners(symbol, latest);
       }
     });
   }
 
-  /**
-   * Conecta o asegura la conexión activa del WebSocket
-   */
+  public getStreamName(symbol: string): string {
+    const s = (symbol || "").trim().toLowerCase();
+    if (s.endsWith("@ticker")) return s;
+    const norm = s.toUpperCase();
+    if (this.symbolToStreamMap[norm]) {
+      return this.symbolToStreamMap[norm];
+    }
+    let clean = s.replace(/[\/\-_]/g, "");
+    if (clean.endsWith("usd") && !clean.endsWith("usdt")) {
+      clean = clean.slice(0, -3) + "usdt";
+    }
+    return `${clean}@ticker`;
+  }
+
   public connect() {
     if (typeof window === "undefined") return;
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
@@ -88,6 +98,18 @@ class RealtimePriceStreamService {
 
       this.socket.onopen = () => {
         this.isConnecting = false;
+        if (this.subscribedStreams.size > 0) {
+          try {
+            this.socket?.send(
+              JSON.stringify({
+                method: "SUBSCRIBE",
+                params: Array.from(this.subscribedStreams),
+                id: Date.now(),
+              })
+            );
+          } catch {
+          }
+        }
       };
 
       this.socket.onmessage = (event) => {
@@ -96,7 +118,6 @@ class RealtimePriceStreamService {
           const data = payload.data || payload;
           if (data && data.e === "24hrTicker" && data.s) {
             const rawPair = data.s.toUpperCase();
-            const normalizedSymbol = this.streamToSymbolMap[rawPair] || rawPair;
             const price = parseFloat(data.c);
             const changePct = parseFloat(data.P);
             const high = parseFloat(data.h);
@@ -104,7 +125,7 @@ class RealtimePriceStreamService {
 
             if (!isNaN(price)) {
               const tick: RealtimePriceTick = {
-                symbol: normalizedSymbol,
+                symbol: rawPair,
                 price,
                 change24hPct: isNaN(changePct) ? 0 : changePct,
                 high24h: isNaN(high) ? undefined : high,
@@ -112,16 +133,32 @@ class RealtimePriceStreamService {
                 timestampMs: Date.now(),
               };
 
-              // Se guarda siempre la cotización más reciente recibida de Binance
-              this.latestTicks.set(normalizedSymbol, tick);
-              if (normalizedSymbol !== rawPair) {
-                this.latestTicks.set(rawPair, tick);
+              this.latestTicks.set(rawPair, tick);
+              const normalized = this.streamToSymbolMap[rawPair];
+              if (normalized && normalized !== rawPair) {
+                this.latestTicks.set(normalized, { ...tick, symbol: normalized });
               }
-              // El despacho a los escuchas se realiza cada 10 segundos vía broadcastIntervalTimer
+              if (rawPair === "BTCUSDT") {
+                this.latestTicks.set("BTC-USD", { ...tick, symbol: "BTC-USD" });
+                this.latestTicks.set("BTC", { ...tick, symbol: "BTC" });
+              } else if (rawPair === "ETHUSDT") {
+                this.latestTicks.set("ETH-USD", { ...tick, symbol: "ETH-USD" });
+                this.latestTicks.set("ETH", { ...tick, symbol: "ETH" });
+              } else if (rawPair === "SOLUSDT") {
+                this.latestTicks.set("SOL-USD", { ...tick, symbol: "SOL-USD" });
+                this.latestTicks.set("SOL", { ...tick, symbol: "SOL" });
+              } else if (rawPair === "BNBUSDT") {
+                this.latestTicks.set("BNB-USD", { ...tick, symbol: "BNB-USD" });
+                this.latestTicks.set("BNB", { ...tick, symbol: "BNB" });
+              } else if (rawPair === "USDTARS") {
+                this.latestTicks.set("USDT-ARS", { ...tick, symbol: "USDT-ARS" });
+              } else if (rawPair === "PAXGUSDT") {
+                this.latestTicks.set("PAXG-USDT", { ...tick, symbol: "PAXG-USDT" });
+                this.latestTicks.set("PAXG", { ...tick, symbol: "PAXG" });
+              }
             }
           }
         } catch {
-          // Ignorar frames malformados
         }
       };
 
@@ -145,9 +182,6 @@ class RealtimePriceStreamService {
     }, 3000);
   }
 
-  /**
-   * Notifica a todos los escuchas suscritos a un símbolo
-   */
   private notifyListeners(symbol: string, tick: RealtimePriceTick) {
     const list = this.listeners.get(symbol.toUpperCase());
     if (list) {
@@ -155,15 +189,11 @@ class RealtimePriceStreamService {
         try {
           cb(tick);
         } catch {
-          // Ignorar fallos en listeners individuales
         }
       });
     }
   }
 
-  /**
-   * Suscribe un callback a las actualizaciones segundo a segundo de un símbolo
-   */
   public subscribe(symbol: string, callback: PriceListener): () => void {
     const norm = symbol.trim().toUpperCase();
     if (!this.listeners.has(norm)) {
@@ -171,33 +201,30 @@ class RealtimePriceStreamService {
     }
     this.listeners.get(norm)!.add(callback);
 
-    // Enviar inmediatamente la última cotización en memoria si existe
-    const cached = this.latestTicks.get(norm) || this.latestTicks.get(norm.replace("-USD", "USDT"));
+    const cached = this.getLatest(norm);
     if (cached) {
       callback(cached);
     }
 
-    // Asegurar que el stream esté conectado
     this.connect();
 
-    // Dinámicamente agregar stream si es crypto no contemplado
-    const streamName = this.symbolToStreamMap[norm] || `${norm.toLowerCase().replace("-", "").replace("usd", "usdt")}@ticker`;
-    if (!this.subscribedStreams.has(streamName) && this.socket && this.socket.readyState === WebSocket.OPEN) {
+    const streamName = this.getStreamName(norm);
+    if (!this.subscribedStreams.has(streamName)) {
       this.subscribedStreams.add(streamName);
-      try {
-        this.socket.send(
-          JSON.stringify({
-            method: "SUBSCRIBE",
-            params: [streamName],
-            id: Date.now(),
-          })
-        );
-      } catch {
-        // Ignorar
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+        try {
+          this.socket.send(
+            JSON.stringify({
+              method: "SUBSCRIBE",
+              params: [streamName],
+              id: Date.now(),
+            })
+          );
+        } catch {
+        }
       }
     }
 
-    // Función para cancelar la suscripción
     return () => {
       const set = this.listeners.get(norm);
       if (set) {
@@ -209,14 +236,25 @@ class RealtimePriceStreamService {
     };
   }
 
-  /**
-   * Obtiene la última cotización instantánea en memoria
-   */
   public getLatest(symbol: string): RealtimePriceTick | undefined {
-    const norm = symbol.trim().toUpperCase();
-    return this.latestTicks.get(norm) || this.latestTicks.get(norm.replace("-USD", "USDT"));
+    const norm = (symbol || "").trim().toUpperCase();
+    if (this.latestTicks.has(norm)) {
+      return this.latestTicks.get(norm);
+    }
+    const clean = norm.replace(/[\/\-_]/g, "");
+    if (this.latestTicks.has(clean)) {
+      return this.latestTicks.get(clean);
+    }
+    if (norm.endsWith("-USD")) {
+      const usdt = norm.replace("-USD", "USDT");
+      if (this.latestTicks.has(usdt)) return this.latestTicks.get(usdt);
+    }
+    if (norm.endsWith("USDT")) {
+      const usd = norm.slice(0, -4) + "-USD";
+      if (this.latestTicks.has(usd)) return this.latestTicks.get(usd);
+    }
+    return undefined;
   }
 }
 
-// Instancia única (Singleton) compartida en toda la aplicación
 export const realtimePriceStream = new RealtimePriceStreamService();

@@ -12,7 +12,7 @@ export const FuturosContractSelector: React.FC<FuturosContractSelectorProps> = (
   selectedSymbol,
   onSelectContract,
 }) => {
-  const [filterCategory, setFilterCategory] = useState<"ALL" | "FX" | "Commodity" | "Index" | "Crypto">("ALL");
+  const [filterCategory, setFilterCategory] = useState<"ALL" | "Crypto FX" | "Commodity" | "Index" | "Crypto">("ALL");
 
   const filteredContracts = FUTURES_CONTRACTS.filter((c) =>
     filterCategory === "ALL" ? true : c.category === filterCategory
@@ -32,7 +32,7 @@ export const FuturosContractSelector: React.FC<FuturosContractSelectorProps> = (
 
         {/* Filtros de Categoría */}
         <div className="inline-flex rounded-lg border border-[#e5e7eb] bg-[#f8fafc] p-1 text-xs">
-          {(["ALL", "FX", "Commodity", "Index", "Crypto"] as const).map((cat) => (
+          {(["ALL", "Crypto FX", "Commodity", "Index", "Crypto"] as const).map((cat) => (
             <button
               key={cat}
               type="button"
@@ -43,7 +43,7 @@ export const FuturosContractSelector: React.FC<FuturosContractSelectorProps> = (
                   : "text-[#64748b] hover:text-[#0b1727]"
               }`}
             >
-              {cat === "ALL" ? "Todos" : cat === "FX" ? "Dólar Rofex" : cat}
+              {cat === "ALL" ? "Todos" : cat === "Crypto FX" ? "Crypto FX (USDT/ARS Binance)" : cat}
             </button>
           ))}
         </div>
@@ -75,7 +75,7 @@ export const FuturosContractSelector: React.FC<FuturosContractSelectorProps> = (
                 </div>
                 <span
                   className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-                    contract.category === "FX"
+                    contract.category === "Crypto FX"
                       ? "bg-blue-100 text-blue-700"
                       : contract.category === "Commodity"
                       ? "bg-amber-100 text-amber-700"

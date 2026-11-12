@@ -14,7 +14,7 @@ import { FUTURES_TICKERS } from "../constants/contracts";
 
 export const FuturosPaperTradingDashboard: React.FC = () => {
   const { currentGroup, tournament, logout, refreshTradingData, isActionLoading } = useGroupTrading();
-  const [selectedSymbol, setSelectedSymbol] = useState<string>("DLR-ABR26");
+  const [selectedSymbol, setSelectedSymbol] = useState<string>("BTCUSDT");
 
   return (
     <div className="space-y-8">

@@ -15,23 +15,32 @@ export function normalizeSymbol(raw: string): string {
   return s;
 }
 
+export function isBinanceSymbol(symbol: string): boolean {
+  const s = normalizeSymbol(symbol).replace("-USD", "USDT").replace(/[-_/]/g, "");
+  return (
+    s.endsWith("USDT") ||
+    s.startsWith("USDT") ||
+    s.endsWith("ARS") ||
+    s.startsWith("ARS") ||
+    s.endsWith("BTC") ||
+    s.startsWith("BTC") ||
+    s.endsWith("ETH") ||
+    s.startsWith("ETH")
+  );
+}
+
 /**
  * Infiere el tipo de activo (Crypto, Stock, Futures)
  */
 export function inferAssetType(symbol: string): "Crypto" | "Stock" | "Futures" {
   const norm = normalizeSymbol(symbol);
-  if (
-    norm.endsWith("=F") ||
-    norm.includes("PERP") ||
-    norm.startsWith("DLR-") ||
-    norm.startsWith("ROFEX")
-  ) {
+  if (norm.endsWith("=F") || norm.includes("PERP")) {
     return "Futures";
   }
   if (
+    isBinanceSymbol(norm) ||
     norm.endsWith("-USD") ||
     norm.endsWith("-USDT") ||
-    norm.endsWith("USDT") ||
     norm.includes("BTC") ||
     norm.includes("ETH") ||
     norm.includes("SOL")
@@ -122,18 +131,18 @@ const CACHE_TTL_MS = 10000; // 10 segundos de ciclo exacto de actualización par
  */
 async function fetchBinanceCryptoQuote(symbol: string): Promise<MarketQuote | null> {
   try {
-    let pair = symbol.toUpperCase().replace("-USD", "USDT").replace("-", "");
+    let pair = symbol.toUpperCase().replace("-USD", "USDT").replace(/[-_/]/g, "");
     if (pair === "BTC") pair = "BTCUSDT";
     if (pair === "ETH") pair = "ETHUSDT";
     if (pair === "SOL") pair = "SOLUSDT";
+    if (pair === "BNB") pair = "BNBUSDT";
 
-    const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}&_t=${Date.now()}`;
+    const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`;
     const res = await fetch(url, {
       cache: "no-store",
       headers: {
         Accept: "application/json",
         "User-Agent": "AegisQuantEngine/2.0",
-        "Cache-Control": "no-cache, no-store, must-revalidate",
       },
     });
 
@@ -147,7 +156,7 @@ async function fetchBinanceCryptoQuote(symbol: string): Promise<MarketQuote | nu
 
     return {
       symbol,
-      asset_type: "Crypto",
+      asset_type: symbol.includes("PERP") ? "Futures" : "Crypto",
       price,
       change_24h_pct: isNaN(changePct) ? 0 : changePct,
       previous_close: isNaN(prevClose) ? price : prevClose,
@@ -158,75 +167,6 @@ async function fetchBinanceCryptoQuote(symbol: string): Promise<MarketQuote | nu
   } catch {
     return null;
   }
-}
-
-/**
- * Calcula dinámicamente los días hasta el último día hábil del mes de vencimiento
- * del contrato Dólar Futuro (Matba Rofex) respecto al instante actual.
- * Cero Look-Ahead Bias: t <= T (causalidad temporal estricta).
- */
-export function calculateDaysToMaturityDLR(
-  symbol: string,
-  nowDate: Date = new Date()
-): { daysToMaturity: number; tna: number } {
-  const monthMap: Record<string, number> = {
-    ENE: 0, JAN: 0,
-    FEB: 1,
-    MAR: 2,
-    ABR: 3, APR: 3,
-    MAY: 4,
-    JUN: 5,
-    JUL: 6,
-    AGO: 7, AUG: 7,
-    SEP: 8, SET: 8,
-    OCT: 9,
-    NOV: 10,
-    DIC: 11, DEC: 11,
-  };
-
-  const upper = symbol.toUpperCase();
-  let targetMonth: number | undefined;
-  for (const [mStr, mIdx] of Object.entries(monthMap)) {
-    if (upper.includes(mStr)) {
-      targetMonth = mIdx;
-      break;
-    }
-  }
-
-  if (targetMonth === undefined) {
-    return { daysToMaturity: 30, tna: 0.385 };
-  }
-
-  const currentYear = nowDate.getUTCFullYear();
-  const currentMonth = nowDate.getUTCMonth();
-
-  let targetYear = currentYear;
-  const yearMatch = upper.match(/(\d{2,4})$/);
-  if (yearMatch) {
-    const yVal = parseInt(yearMatch[1], 10);
-    targetYear = yVal < 100 ? 2000 + yVal : yVal;
-  } else if (targetMonth < currentMonth) {
-    targetYear = currentYear + 1;
-  }
-
-  // Último día del mes de vencimiento
-  const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0, 18, 0, 0));
-
-  // Si cae en fin de semana, retroceder al último día hábil (viernes)
-  const dayOfWeek = lastDay.getUTCDay();
-  if (dayOfWeek === 6) {
-    lastDay.setUTCDate(lastDay.getUTCDate() - 1);
-  } else if (dayOfWeek === 0) {
-    lastDay.setUTCDate(lastDay.getUTCDate() - 2);
-  }
-
-  const diffMs = lastDay.getTime() - nowDate.getTime();
-  const daysToMaturity = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-
-  // Tasa Nominal Anual (TNA) implícita de la curva de futuros DLR
-  const tna = 0.38 + 0.08 * (daysToMaturity / 365);
-
-  return { daysToMaturity, tna: Math.round(tna * 1000) / 1000 };
 }
 
 /**
@@ -245,48 +185,20 @@ export async function fetchLiveMarketQuote(rawSymbol: string): Promise<MarketQuo
 
   const assetType = inferAssetType(symbol);
 
-  // 2. Si es Cripto o Cripto Perpetuo, consultar primero el feed de Binance Spot/Perp
-  if (assetType === "Crypto" || symbol.includes("PERP")) {
-    const cleanSym = symbol.replace("-PERP", "-USD");
+  // 2. Si es Cripto, Cripto Perpetuo o par de Binance, consultar primero el feed de Binance Spot/Perp
+  if (isBinanceSymbol(symbol) || assetType === "Crypto" || symbol.includes("PERP")) {
+    const cleanSym = symbol.replace("-PERP", "");
     const binanceQuote = await fetchBinanceCryptoQuote(cleanSym);
     if (binanceQuote) {
       binanceQuote.symbol = symbol;
       binanceQuote.asset_type = assetType;
+      binanceQuote.is_market_open = true;
       quoteCache.set(symbol, {
         quote: binanceQuote,
         expiresAt: now + CACHE_TTL_MS,
       });
       return binanceQuote;
     }
-  }
-
-  // 2B. Si es Dólar Futuro Matba Rofex (DLR-*), derivar de USDARS=X + curva de tasas implícitas dinámica
-  if (symbol.startsWith("DLR-")) {
-    const usdQuote = await fetchLiveMarketQuote("USDARS=X");
-    const spotPrice = usdQuote.price || 1545.0;
-
-    const { daysToMaturity, tna } = calculateDaysToMaturityDLR(symbol, new Date(now));
-
-    const futurePrice = spotPrice * (1 + tna * (daysToMaturity / 365));
-    const prevFuturePrice = usdQuote.previous_close * (1 + tna * (daysToMaturity / 365));
-    const chgPct = prevFuturePrice > 0 ? ((futurePrice - prevFuturePrice) / prevFuturePrice) * 100 : 0;
-
-    const rofexQuote: MarketQuote = {
-      symbol,
-      asset_type: "Futures",
-      price: Math.round(futurePrice * 100) / 100,
-      change_24h_pct: Math.round(chgPct * 100) / 100,
-      previous_close: Math.round(prevFuturePrice * 100) / 100,
-      is_market_open: true,
-      status_message: `Matba Rofex DLR - TNA Implícita ${(tna * 100).toFixed(1)}% (${daysToMaturity} días)`,
-      timestamp_ms: Date.now(),
-    };
-
-    quoteCache.set(symbol, {
-      quote: rofexQuote,
-      expiresAt: now + CACHE_TTL_MS,
-    });
-    return rofexQuote;
   }
 
   // 3. Consulta a Yahoo Finance para Acciones (Wall Street) o Fallback

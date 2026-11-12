@@ -372,7 +372,7 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
                   Cantidad de Contratos
                 </label>
                 <span className="text-[10px] text-[#64748b]">
-                  1 contrato = {selectedContract.multiplier} {selectedContract.category === "FX" ? "USD" : "unidades"}
+                  1 contrato = {selectedContract.multiplier} {selectedContract.category === "Crypto FX" ? "USDT" : "unidades"}
                 </span>
               </div>
               <input

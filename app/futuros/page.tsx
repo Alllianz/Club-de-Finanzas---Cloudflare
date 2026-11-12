@@ -25,9 +25,9 @@ export default async function FuturosPage() {
       desc: "Monitoreo permanente del costo de acarreo (carry) entre activos de renta fija soberana/corporativa y contratos de futuros para capturar primas de arbitraje libre de riesgo direccional.",
     },
     {
-      title: "Contratos Perpetuos & Rofex",
+      title: "Contratos Perpetuos & Crypto FX",
       badge: "Multi-Activo",
-      desc: "Negociación de contratos estandarizados de futuros de dólar financiero, commodities agrícolas y energéticos, índices bursátiles CME y perpetuos cripto.",
+      desc: "Negociación de contratos estandarizados de Crypto FX (USDT/ARS Binance), commodities agrícolas y energéticos, índices bursátiles CME y perpetuos cripto.",
     },
     {
       title: "Paper Trading Competitivo",
@@ -54,7 +54,7 @@ export default async function FuturosPage() {
               <span>↓</span>
             </a>
             <span className="text-xs font-medium text-[#64748b]">
-              Simulador institucional en vivo · Dólar Matba Rofex, Commodities, Índices y Cripto Perpetuos
+              Simulador institucional en vivo · Crypto FX (USDT/ARS Binance), Commodities, Índices y Cripto Perpetuos
             </span>
           </div>
         }
