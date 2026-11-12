@@ -9,7 +9,7 @@ import {
   TournamentRecord,
   TradeRecord,
 } from "./types";
-import { fetchLiveMarketQuote } from "./market-feed";
+import { fetchLiveMarketQuote, fetchLiveMarketQuotesBatch } from "./market-feed";
 import {
   checkTournamentDateRange,
   getActiveTournament,
@@ -999,6 +999,8 @@ export async function matchPendingOrders(
   const ordersFilled: string[] = [];
   const tournamentCache = new Map<string, TournamentRecord | null>();
 
+  const quotesMap = await fetchLiveMarketQuotesBatch(orders.map((o) => o.symbol));
+
   for (const ord of orders) {
     try {
       // Obtener torneo para verificar reglas y fechas
@@ -1021,7 +1023,10 @@ export async function matchPendingOrders(
         continue;
       }
 
-      const quote = await fetchLiveMarketQuote(ord.symbol);
+      const quote = quotesMap.get(ord.symbol);
+      if (!quote) {
+        continue;
+      }
 
       // Cero Look-Ahead Bias: si es acción bursátil y el mercado está cerrado, omitir estrictamente (t_ejec >= t_apertura)
       if (quote.asset_type === "Stock" && !quote.is_market_open) {

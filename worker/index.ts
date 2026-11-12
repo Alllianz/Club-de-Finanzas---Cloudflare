@@ -59,7 +59,7 @@ async function throttledMatchPendingOrders(db: any, groupId: string, targetGameI
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // Preflight CORS
@@ -269,8 +269,10 @@ export default {
 
         const targetGameId = url.searchParams.get("gameId")?.trim() || undefined;
         const marketType = url.searchParams.get("marketType")?.trim() || undefined;
-        // Emparejar órdenes límite pendientes contra cotizaciones spot en tiempo real (Zero Look-Ahead Bias)
-        await throttledMatchPendingOrders(env.DB, groupId, targetGameId, marketType);
+        // Emparejar órdenes límite pendientes en segundo plano sin bloquear respuesta
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(throttledMatchPendingOrders(env.DB, groupId, targetGameId, marketType));
+        }
 
         const result = await getMarkedPortfolio(env.DB, groupId, targetGameId, marketType);
         return new Response(
@@ -629,7 +631,8 @@ export default {
         }
         const gameId = url.searchParams.get("gameId")?.trim() || undefined;
         const marketType = url.searchParams.get("marketType")?.trim() || undefined;
-        const result = await getEquityCurveSeries(env.DB, gameId, marketType);
+        const reconstruct = url.searchParams.get("reconstruct") === "true";
+        const result = await getEquityCurveSeries(env.DB, gameId, marketType, reconstruct);
         return new Response(
           JSON.stringify({ success: true, data: result, ...result }),
           { status: 200, headers: corsHeaders }

@@ -1,5 +1,5 @@
-import { D1Database, DailySnapshotRecord, PositionRecord, TournamentRecord } from "./types";
-import { fetchLiveMarketQuote } from "./market-feed";
+import { D1Database, DailySnapshotRecord, PositionRecord, TournamentRecord, PortfolioRecord } from "./types";
+import { fetchLiveMarketQuote, fetchLiveMarketQuotesBatch } from "./market-feed";
 import {
   ensurePortfolioSeed,
   getActiveTournament,
@@ -590,10 +590,195 @@ export async function processFutures15mSnapshots(
   };
 }
 
-export async function getEquityCurveSeries(
+export async function reconstructEquityCurveFromTrades(
   db: D1Database,
   gameId?: string,
   marketType?: string
+): Promise<Record<string, EquityCurvePoint[]>> {
+  const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (gameId && gameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = gameId ? await getTournamentById(db, gameId) : await getActiveTournament(db, isFutures ? "FUTURES" : marketType);
+  const resolvedGameId = gameId || tournament?.id || defaultGameId;
+  const initialCap = tournament?.initial_capital || (isFutures ? 10000.0 : INITIAL_CAPITAL);
+  const groups = Object.values(OFFICIAL_GROUPS);
+
+  let tournamentStartTs = Date.now() - 7 * 86400000;
+  if (tournament?.start_date) {
+    const parsed = new Date(tournament.start_date).getTime();
+    if (!isNaN(parsed) && parsed > 0) {
+      tournamentStartTs = parsed;
+    }
+  } else if (tournament?.created_at && tournament.created_at > 0) {
+    tournamentStartTs = tournament.created_at;
+  }
+
+  const tradesRes = await db
+    .prepare(
+      `SELECT id, game_id, user_id, symbol, asset_type, order_side,
+              position_side, quantity, price, fee, realized_pnl, leverage,
+              margin_mode, timestamp
+       FROM paper_trades
+       WHERE game_id = ?
+       ORDER BY timestamp ASC, id ASC`
+    )
+    .bind(resolvedGameId)
+    .all<{
+      id: string;
+      game_id: string;
+      user_id: string;
+      symbol: string;
+      asset_type: string;
+      order_side: string;
+      position_side: string;
+      quantity: number;
+      price: number;
+      fee: number;
+      realized_pnl: number;
+      leverage: number;
+      margin_mode: string;
+      timestamp: number;
+    }>();
+  const allTrades = tradesRes.results || [];
+
+  const [portsRes, posRes] = await Promise.all([
+    db.prepare("SELECT * FROM paper_portfolios WHERE game_id = ?").bind(resolvedGameId).all<PortfolioRecord>(),
+    db.prepare("SELECT * FROM paper_positions WHERE game_id = ?").bind(resolvedGameId).all<PositionRecord>(),
+  ]);
+  const allPorts = portsRes.results || [];
+  const allPositions = posRes.results || [];
+
+  const symbolsToQuote = Array.from(new Set(allPositions.map((p) => p.symbol).filter(Boolean)));
+  const livePriceMap = new Map<string, number>();
+  if (symbolsToQuote.length > 0) {
+    try {
+      const quotes = await fetchLiveMarketQuotesBatch(symbolsToQuote);
+      for (const [sym, q] of quotes.entries()) {
+        livePriceMap.set(sym, q.price);
+      }
+    } catch {}
+  }
+
+  const reconstructedByGroup: Record<string, EquityCurvePoint[]> = {};
+  const nowMs = Date.now();
+
+  for (const grp of groups) {
+    const groupTrades = allTrades.filter((t) => t.user_id === grp.id);
+    const firstTradeTs = groupTrades.length > 0 ? Number(groupTrades[0].timestamp) : null;
+    const initialTs = firstTradeTs && firstTradeTs <= tournamentStartTs ? firstTradeTs - 60000 : tournamentStartTs;
+
+    let runningEquity = initialCap;
+    let peakEquity = initialCap;
+    let maxDrawdownPct = 0.0;
+
+    const points: EquityCurvePoint[] = [];
+
+    // Start from initialCapital ($10,000)
+    points.push({
+      timestamp: initialTs,
+      date: getSnapshotDateString(new Date(initialTs)),
+      bucketTs: Math.floor(initialTs / (15 * 60 * 1000)) * (15 * 60 * 1000),
+      equity: initialCap,
+      peakEquity: initialCap,
+      drawdownPct: 0.0,
+      maxDrawdownPct: 0.0,
+    });
+
+    // Track open position lots per (group_id, symbol, position_side)
+    const openLots = new Map<string, number>();
+
+    for (const tr of groupTrades) {
+      const sym = tr.symbol;
+      const posSide = (tr.position_side || "LONG").toUpperCase();
+      const orderSide = (tr.order_side || "BUY").toUpperCase();
+      const key = `${sym}:${posSide}`;
+      const isLong = posSide === "LONG";
+      const isBuy = orderSide === "BUY";
+      const isOpen = (isLong && isBuy) || (!isLong && !isBuy);
+      const qty = Number(tr.quantity) || 0;
+      const fee = Number(tr.fee) || 0;
+      const realizedPnl = Number(tr.realized_pnl) || 0;
+
+      if (isOpen) {
+        const curLots = openLots.get(key) || 0;
+        openLots.set(key, curLots + qty);
+        runningEquity -= fee;
+      } else {
+        const curLots = openLots.get(key) || 0;
+        openLots.set(key, Math.max(0, curLots - qty));
+        runningEquity += realizedPnl;
+      }
+
+      if (runningEquity > peakEquity) {
+        peakEquity = runningEquity;
+      }
+      const ddNom = Math.max(0, peakEquity - runningEquity);
+      const ddPct = peakEquity > 1e-6 ? (ddNom / peakEquity) * 100 : 0.0;
+      if (ddPct > maxDrawdownPct) {
+        maxDrawdownPct = ddPct;
+      }
+
+      const trTs = Number(tr.timestamp) || initialTs;
+      points.push({
+        timestamp: trTs,
+        date: getSnapshotDateString(new Date(trTs)),
+        bucketTs: Math.floor(trTs / (15 * 60 * 1000)) * (15 * 60 * 1000),
+        equity: Math.round(runningEquity * 100) / 100,
+        peakEquity: Math.round(peakEquity * 100) / 100,
+        drawdownPct: Math.round(ddPct * 100) / 100,
+        maxDrawdownPct: Math.round(maxDrawdownPct * 100) / 100,
+      });
+    }
+
+    // Append current live MTM point from paper_portfolios/paper_positions
+    const port = allPorts.find((p) => p.user_id === grp.id);
+    const grpPositions = allPositions.filter((p) => p.user_id === grp.id);
+    const cashBalance = port ? Number(port.cash_balance) : runningEquity;
+
+    let totalUsedMargin = 0;
+    let totalUnrealizedPnl = 0;
+    for (const pos of grpPositions) {
+      const livePrice = livePriceMap.get(pos.symbol) ?? (pos.current_price || pos.entry_price);
+      let unrealized = 0;
+      if (pos.side === "LONG") {
+        unrealized = (livePrice - pos.entry_price) * pos.quantity;
+      } else {
+        unrealized = (pos.entry_price - livePrice) * pos.quantity;
+      }
+      totalUsedMargin += Number(pos.initial_margin) || 0;
+      totalUnrealizedPnl += unrealized;
+    }
+
+    const liveEquity = cashBalance + totalUsedMargin + totalUnrealizedPnl;
+    if (liveEquity > peakEquity) {
+      peakEquity = liveEquity;
+    }
+    const liveDdNom = Math.max(0, peakEquity - liveEquity);
+    const liveDdPct = peakEquity > 1e-6 ? (liveDdNom / peakEquity) * 100 : 0.0;
+    if (liveDdPct > maxDrawdownPct) {
+      maxDrawdownPct = liveDdPct;
+    }
+
+    points.push({
+      timestamp: nowMs,
+      date: getSnapshotDateString(new Date(nowMs)),
+      bucketTs: Math.floor(nowMs / (15 * 60 * 1000)) * (15 * 60 * 1000),
+      equity: Math.round(liveEquity * 100) / 100,
+      peakEquity: Math.round(peakEquity * 100) / 100,
+      drawdownPct: Math.round(liveDdPct * 100) / 100,
+      maxDrawdownPct: Math.round(maxDrawdownPct * 100) / 100,
+    });
+
+    reconstructedByGroup[grp.id] = points;
+  }
+
+  return reconstructedByGroup;
+}
+
+export async function getEquityCurveSeries(
+  db: D1Database,
+  gameId?: string,
+  marketType?: string,
+  reconstruct: boolean = false
 ): Promise<EquityCurveSeriesResult> {
   const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (gameId && gameId.toLowerCase().includes("futur"));
   const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
@@ -689,6 +874,55 @@ export async function getEquityCurveSeries(
           maxDrawdownPct: r.max_dd_pct,
         });
       }
+    }
+  }
+
+  const needsReconstruct = reconstruct || groups.some((grp) => seriesByGroup[grp.id].points.length < 2);
+
+  if (needsReconstruct) {
+    try {
+      const reconstructedCurves = await reconstructEquityCurveFromTrades(db, resolvedGameId, isFutures ? "FUTURES" : "PORTFOLIO");
+      for (const grp of groups) {
+        if (reconstruct || seriesByGroup[grp.id].points.length < 2) {
+          const tradePoints = reconstructedCurves[grp.id] || [];
+          const combined = [...seriesByGroup[grp.id].points, ...tradePoints];
+          combined.sort((a, b) => a.timestamp - b.timestamp);
+
+          const merged: EquityCurvePoint[] = [];
+          for (const pt of combined) {
+            if (merged.length === 0) {
+              merged.push(pt);
+              continue;
+            }
+            const prev = merged[merged.length - 1];
+            if (Math.abs(pt.timestamp - prev.timestamp) < 1000) {
+              merged[merged.length - 1] = pt;
+            } else {
+              merged.push(pt);
+            }
+          }
+
+          let rollingPeak = 0;
+          let rollingMaxDd = 0;
+          for (const pt of merged) {
+            if (pt.equity > rollingPeak) {
+              rollingPeak = pt.equity;
+            }
+            pt.peakEquity = Math.round(rollingPeak * 100) / 100;
+            const ddNom = Math.max(0, rollingPeak - pt.equity);
+            const ddPct = rollingPeak > 1e-6 ? (ddNom / rollingPeak) * 100 : 0.0;
+            if (ddPct > rollingMaxDd) {
+              rollingMaxDd = ddPct;
+            }
+            pt.drawdownPct = Math.round(ddPct * 100) / 100;
+            pt.maxDrawdownPct = Math.round(rollingMaxDd * 100) / 100;
+          }
+
+          seriesByGroup[grp.id].points = merged;
+        }
+      }
+    } catch (err) {
+      console.error("[getEquityCurveSeries] Error reconstructing curve from trades:", err);
     }
   }
 

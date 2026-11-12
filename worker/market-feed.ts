@@ -3,6 +3,8 @@
 
 import { MarketQuote } from "./types";
 
+export type LiveMarketQuote = MarketQuote;
+
 /**
  * Normaliza tickers para Yahoo Finance
  */
@@ -129,7 +131,7 @@ const CACHE_TTL_MS = 10000; // 10 segundos de ciclo exacto de actualización par
  * Consulta de ultra-baja latencia para Criptomonedas vía Binance API
  * Garantiza la toma del precio más reciente con bypass de caché intermedia
  */
-async function fetchBinanceCryptoQuote(symbol: string): Promise<MarketQuote | null> {
+async function fetchBinanceCryptoQuote(symbol: string): Promise<LiveMarketQuote | null> {
   try {
     let pair = symbol.toUpperCase().replace("-USD", "USDT").replace(/[-_/]/g, "");
     if (pair === "BTC") pair = "BTCUSDT";
@@ -140,6 +142,7 @@ async function fetchBinanceCryptoQuote(symbol: string): Promise<MarketQuote | nu
     const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`;
     const res = await fetch(url, {
       cache: "no-store",
+      signal: AbortSignal.timeout(1500),
       headers: {
         Accept: "application/json",
         "User-Agent": "AegisQuantEngine/2.0",
@@ -173,7 +176,7 @@ async function fetchBinanceCryptoQuote(symbol: string): Promise<MarketQuote | nu
  * Consulta la cotización en vivo desde Yahoo Finance o Binance con Caché Edge
  * Implementa Zero Look-Ahead Bias utilizando la última cotización real en el instante de ejecución.
  */
-export async function fetchLiveMarketQuote(rawSymbol: string): Promise<MarketQuote> {
+export async function fetchLiveMarketQuote(rawSymbol: string): Promise<LiveMarketQuote> {
   const symbol = normalizeSymbol(rawSymbol);
   const now = Date.now();
 
@@ -206,64 +209,115 @@ export async function fetchLiveMarketQuote(rawSymbol: string): Promise<MarketQuo
   const marketStatus = getMarketHoursStatus(assetType);
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d&_t=${Date.now()}`;
   
-  const res = await fetch(url, {
-    cache: "no-store",
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-      Accept: "application/json",
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-    },
-  });
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(1500),
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        Accept: "application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+      },
+    });
 
-  if (!res.ok) {
-    throw new Error(`Ticker '${symbol}' no encontrado en el mercado (${res.status})`);
+    if (!res.ok) {
+      if (cached) return cached.quote;
+      throw new Error(`Ticker '${symbol}' no encontrado en el mercado (${res.status})`);
+    }
+
+    const json = (await res.json()) as any;
+    const result = json?.chart?.result?.[0];
+    if (!result || !result.meta) {
+      if (cached) return cached.quote;
+      throw new Error(`Datos no disponibles para '${symbol}'`);
+    }
+
+    const meta = result.meta;
+    const candlesClose = result.indicators?.quote?.[0]?.close;
+    let latestCandleClose: number | undefined = undefined;
+    if (Array.isArray(candlesClose) && candlesClose.length > 0) {
+      const validCloses = candlesClose.filter((c: any) => typeof c === "number" && !isNaN(c));
+      if (validCloses.length > 0) {
+        latestCandleClose = validCloses[validCloses.length - 1];
+      }
+    }
+
+    const price = meta.regularMarketPrice ?? latestCandleClose ?? meta.previousClose ?? meta.chartPreviousClose;
+    if (price === undefined || price === null || isNaN(price)) {
+      if (cached) return cached.quote;
+      throw new Error(`Precio no disponible para '${symbol}'`);
+    }
+
+    const prevClose = meta.previousClose ?? meta.chartPreviousClose ?? price;
+    const changePct = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
+
+    const quote: LiveMarketQuote = {
+      symbol: meta.symbol || symbol,
+      asset_type: assetType,
+      price: Number(price),
+      change_24h_pct: Number(changePct),
+      previous_close: Number(prevClose),
+      is_market_open: marketStatus.isOpen,
+      status_message: marketStatus.message,
+      timestamp_ms: meta.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now(),
+    };
+
+    // Guardar en caché Edge con vigencia de 10 segundos
+    quoteCache.set(symbol, {
+      quote,
+      expiresAt: now + CACHE_TTL_MS,
+    });
+
+    return quote;
+  } catch (err) {
+    if (cached) {
+      return cached.quote;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Consulta por lote deduplicada para múltiples símbolos con tolerancia a fallos
+ */
+export async function fetchLiveMarketQuotesBatch(
+  symbols: string[]
+): Promise<Map<string, LiveMarketQuote>> {
+  const resultMap = new Map<string, LiveMarketQuote>();
+  if (!symbols || symbols.length === 0) return resultMap;
+
+  const uniqueMap = new Map<string, string[]>();
+  for (const raw of symbols) {
+    const trimmed = (raw || "").trim();
+    if (!trimmed) continue;
+    const norm = normalizeSymbol(trimmed);
+    const list = uniqueMap.get(norm) || [];
+    list.push(trimmed);
+    uniqueMap.set(norm, list);
   }
 
-  const json = (await res.json()) as any;
-  const result = json?.chart?.result?.[0];
-  if (!result || !result.meta) {
-    throw new Error(`Datos no disponibles para '${symbol}'`);
-  }
+  const uniqueNorms = Array.from(uniqueMap.keys());
+  const settled = await Promise.allSettled(
+    uniqueNorms.map(async (norm) => {
+      const quote = await fetchLiveMarketQuote(norm);
+      return { norm, quote };
+    })
+  );
 
-  const meta = result.meta;
-  // Obtener el precio más reciente actualizado:
-  // 1. regularMarketPrice en tiempo real
-  // 2. Último valor en los indicadores de cierre intradía
-  // 3. previousClose o chartPreviousClose como salvaguarda
-  const candlesClose = result.indicators?.quote?.[0]?.close;
-  let latestCandleClose: number | undefined = undefined;
-  if (Array.isArray(candlesClose) && candlesClose.length > 0) {
-    const validCloses = candlesClose.filter((c: any) => typeof c === "number" && !isNaN(c));
-    if (validCloses.length > 0) {
-      latestCandleClose = validCloses[validCloses.length - 1];
+  for (const res of settled) {
+    if (res.status === "fulfilled" && res.value && res.value.quote) {
+      const { norm, quote } = res.value;
+      resultMap.set(norm, quote);
+      const rawList = uniqueMap.get(norm) || [];
+      for (const r of rawList) {
+        resultMap.set(r, quote);
+      }
+      if (quote.symbol) {
+        resultMap.set(quote.symbol, quote);
+      }
     }
   }
 
-  const price = meta.regularMarketPrice ?? latestCandleClose ?? meta.previousClose ?? meta.chartPreviousClose;
-  if (price === undefined || price === null || isNaN(price)) {
-    throw new Error(`Precio no disponible para '${symbol}'`);
-  }
-
-  const prevClose = meta.previousClose ?? meta.chartPreviousClose ?? price;
-  const changePct = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
-
-  const quote: MarketQuote = {
-    symbol: meta.symbol || symbol,
-    asset_type: assetType,
-    price: Number(price),
-    change_24h_pct: Number(changePct),
-    previous_close: Number(prevClose),
-    is_market_open: marketStatus.isOpen,
-    status_message: marketStatus.message,
-    timestamp_ms: meta.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now(),
-  };
-
-  // Guardar en caché Edge con vigencia de 10 segundos
-  quoteCache.set(symbol, {
-    quote,
-    expiresAt: now + CACHE_TTL_MS,
-  });
-
-  return quote;
+  return resultMap;
 }

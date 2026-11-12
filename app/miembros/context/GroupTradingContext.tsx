@@ -252,12 +252,10 @@ export const GroupTradingProvider: React.FC<{
       setErrorMessage(null);
       const targetGameId = selectedTournamentId || tournament?.id || undefined;
 
-      const [portData, tradesData, ordersData, lbData, allTours] = await Promise.allSettled([
+      const [portData, tradesData, ordersData] = await Promise.allSettled([
         fetchPortfolio(currentGroup.id, targetGameId, marketType, controller.signal),
         fetchTradesHistory(currentGroup.id, targetGameId, marketType, controller.signal),
         fetchPendingOrders(currentGroup.id, targetGameId, marketType, controller.signal),
-        fetchLeaderboardApi(targetGameId, marketType, controller.signal),
-        fetchTournamentsList(currentGroup.id, marketType, controller.signal),
       ]);
 
       if (controller.signal.aborted || currentSeq !== requestSeqRef.current) {
@@ -274,36 +272,48 @@ export const GroupTradingProvider: React.FC<{
       if (ordersData.status === "fulfilled") {
         setPendingOrders(ordersData.value);
       }
-      if (lbData.status === "fulfilled") {
-        setLeaderboard(lbData.value);
-      }
-      if (allTours.status === "fulfilled" && allTours.value.length > 0) {
-        setAvailableTournaments(allTours.value);
-        if (targetGameId) {
-          const match = allTours.value.find((t) => t.id === targetGameId);
-          if (match) {
-            setTournament((prev) => {
-              if (
-                prev &&
-                prev.id === match.id &&
-                prev.startDate === match.startDate &&
-                prev.endDate === match.endDate &&
-                prev.title === match.title &&
-                prev.initialCapital === match.initialCapital &&
-                prev.maxLeverage === match.maxLeverage &&
-                prev.allowShort === match.allowShort &&
-                prev.rebalanceDay === match.rebalanceDay &&
-                prev.tradingStartTime === match.tradingStartTime &&
-                prev.tradingEndTime === match.tradingEndTime &&
-                prev.maxTradesPerWeek === match.maxTradesPerWeek
-              ) {
-                return prev;
-              }
-              return match;
-            });
+
+      // Trigger leaderboard and tournaments non-blockingly
+      Promise.allSettled([
+        fetchLeaderboardApi(targetGameId, marketType, controller.signal),
+        fetchTournamentsList(currentGroup.id, marketType, controller.signal),
+      ])
+        .then(([lbData, allTours]) => {
+          if (controller.signal.aborted || currentSeq !== requestSeqRef.current) {
+            return;
           }
-        }
-      }
+          if (lbData.status === "fulfilled") {
+            setLeaderboard(lbData.value);
+          }
+          if (allTours.status === "fulfilled" && allTours.value.length > 0) {
+            setAvailableTournaments(allTours.value);
+            if (targetGameId) {
+              const match = allTours.value.find((t) => t.id === targetGameId);
+              if (match) {
+                setTournament((prev) => {
+                  if (
+                    prev &&
+                    prev.id === match.id &&
+                    prev.startDate === match.startDate &&
+                    prev.endDate === match.endDate &&
+                    prev.title === match.title &&
+                    prev.initialCapital === match.initialCapital &&
+                    prev.maxLeverage === match.maxLeverage &&
+                    prev.allowShort === match.allowShort &&
+                    prev.rebalanceDay === match.rebalanceDay &&
+                    prev.tradingStartTime === match.tradingStartTime &&
+                    prev.tradingEndTime === match.tradingEndTime &&
+                    prev.maxTradesPerWeek === match.maxTradesPerWeek
+                  ) {
+                    return prev;
+                  }
+                  return match;
+                });
+              }
+            }
+          }
+        })
+        .catch(() => {});
     } catch (err) {
       if (controller.signal.aborted || currentSeq !== requestSeqRef.current) {
         return;

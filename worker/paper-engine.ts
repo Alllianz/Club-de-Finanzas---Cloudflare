@@ -2,12 +2,14 @@
 // Basado en Aegis Engine - Zero Look-Ahead Bias
 
 import { D1Database, PortfolioRecord, PositionRecord, TradeRecord, LeaderboardEntry, TournamentRecord, DailySnapshotRecord } from "./types";
-import { fetchLiveMarketQuote } from "./market-feed";
+import { fetchLiveMarketQuote, fetchLiveMarketQuotesBatch } from "./market-feed";
 import { OFFICIAL_GROUPS } from "./group-auth";
 import { checkTournamentDateRange, parseTournamentDateBoundary, formatTournamentDate } from "./tournament-dates";
 export { checkTournamentDateRange, parseTournamentDateBoundary, formatTournamentDate };
-export { ensureFutures15mSnapshotsTable, processFutures15mSnapshots, getEquityCurveSeries, getLatestDailySnapshot, ensureDailySnapshotsTable } from "./daily-snapshot-engine";
+export { ensureFutures15mSnapshotsTable, processFutures15mSnapshots, getEquityCurveSeries, getLatestDailySnapshot, ensureDailySnapshotsTable, reconstructEquityCurveFromTrades } from "./daily-snapshot-engine";
 import { getLatestDailySnapshot, ensureDailySnapshotsTable } from "./daily-snapshot-engine";
+
+let portfolioColsMigrated = false;
 
 export const DEFAULT_GAME_ID = "torneo-club-2026";
 export const DEFAULT_FUTURES_GAME_ID = "torneo-futuros-2026";
@@ -75,15 +77,18 @@ export async function ensurePortfolioSeed(
   const now = Date.now();
 
   // Asegurar columnas de drawdown en D1
-  try {
-    await db.prepare("ALTER TABLE paper_portfolios ADD COLUMN peak_equity REAL DEFAULT NULL").run();
-  } catch {}
-  try {
-    await db.prepare("ALTER TABLE paper_portfolios ADD COLUMN max_drawdown_nominal REAL DEFAULT 0.0").run();
-  } catch {}
-  try {
-    await db.prepare("ALTER TABLE paper_portfolios ADD COLUMN max_drawdown_pct REAL DEFAULT 0.0").run();
-  } catch {}
+  if (!portfolioColsMigrated) {
+    try {
+      await db.prepare("ALTER TABLE paper_portfolios ADD COLUMN peak_equity REAL DEFAULT NULL").run();
+    } catch {}
+    try {
+      await db.prepare("ALTER TABLE paper_portfolios ADD COLUMN max_drawdown_nominal REAL DEFAULT 0.0").run();
+    } catch {}
+    try {
+      await db.prepare("ALTER TABLE paper_portfolios ADD COLUMN max_drawdown_pct REAL DEFAULT 0.0").run();
+    } catch {}
+    portfolioColsMigrated = true;
+  }
 
   await db
     .prepare(
@@ -138,22 +143,23 @@ export async function getMarkedPortfolio(
   const markedPositions: PositionRecord[] = [];
   const cache = priceCache || new Map<string, number>();
 
+  const missingSymbols = Array.from(new Set(rawPositions.map((p) => p.symbol).filter((s) => !cache.has(s))));
+  if (missingSymbols.length > 0) {
+    try {
+      const batchQuotes = await fetchLiveMarketQuotesBatch(missingSymbols);
+      for (const [sym, q] of batchQuotes.entries()) {
+        cache.set(sym, q.price);
+      }
+    } catch {}
+  }
+
   let totalUsedMargin = 0;
   let totalUnrealizedPnl = 0;
 
   for (const pos of rawPositions) {
-    let currentPrice = pos.current_price || pos.entry_price;
+    const currentPrice = pos.current_price || pos.entry_price;
+    const livePrice = cache.get(pos.symbol) ?? currentPrice;
 
-    if (!cache.has(pos.symbol)) {
-      try {
-        const quote = await fetchLiveMarketQuote(pos.symbol);
-        cache.set(pos.symbol, quote.price);
-      } catch {
-        cache.set(pos.symbol, currentPrice);
-      }
-    }
-
-    const livePrice = cache.get(pos.symbol) || currentPrice;
     let unrealized = 0;
     if (pos.side === "LONG") {
       unrealized = (livePrice - pos.entry_price) * pos.quantity;
@@ -180,39 +186,6 @@ export async function getMarkedPortfolio(
   let maxDdNominal = Math.max(0, Number(port.max_drawdown_nominal) || 0);
   let maxDdPct = Math.max(0, Number(port.max_drawdown_pct) || 0);
 
-  try {
-    const tradesRes = await db
-      .prepare(
-        "SELECT realized_pnl, fee, timestamp FROM paper_trades WHERE game_id = ? AND user_id = ? ORDER BY timestamp ASC"
-      )
-      .bind(gameId, groupId)
-      .all<{ realized_pnl: number; fee: number; timestamp: number }>();
-
-    if (tradesRes.results && tradesRes.results.length > 0) {
-      let runningEquity = initialCap;
-      for (const tr of tradesRes.results) {
-        if (tr.realized_pnl !== 0) {
-          runningEquity += tr.realized_pnl;
-        } else {
-          runningEquity -= tr.fee;
-        }
-
-        if (runningEquity > peak) {
-          peak = runningEquity;
-        }
-        const dd = Math.max(0, peak - runningEquity);
-        if (dd > maxDdNominal) {
-          maxDdNominal = dd;
-        }
-        const ddPct = peak > 1e-6 ? (dd / peak) * 100 : 0.0;
-        if (ddPct > maxDdPct) {
-          maxDdPct = ddPct;
-        }
-      }
-    }
-  } catch {
-  }
-
   if (equity > peak) {
     peak = equity;
   }
@@ -231,25 +204,6 @@ export async function getMarkedPortfolio(
   );
   const investedPct = equity > 1e-6 ? Math.min(100, Math.max(0, (investedValue / equity) * 100)) : 0.0;
   const isFullyInvested = investedPct >= 95.0;
-
-  try {
-    await db
-      .prepare(
-        "UPDATE paper_portfolios SET peak_equity = ?, max_drawdown_nominal = ?, max_drawdown_pct = ?, updated_at = ? WHERE game_id = ? AND user_id = ?"
-      )
-      .bind(peak, maxDdNominal, maxDdPct, Date.now(), gameId, groupId)
-      .run();
-  } catch {
-    try {
-      await db
-        .prepare(
-          "UPDATE paper_portfolios SET peak_equity = ?, max_drawdown_nominal = ?, updated_at = ? WHERE game_id = ? AND user_id = ?"
-        )
-        .bind(peak, maxDdNominal, Date.now(), gameId, groupId)
-        .run();
-    } catch {
-    }
-  }
 
   let latestSnap: DailySnapshotRecord | null = null;
   if (!isFutures) {
@@ -806,7 +760,6 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string, mark
   const isFutures = isFuturesMarket || (tournament?.tournament_type === "FUTURES") || gameId.toLowerCase().includes("futur");
   const initialCap = tournament?.initial_capital || (isFutures ? 10000.0 : INITIAL_CAPITAL);
   const groups = Object.values(OFFICIAL_GROUPS);
-  const leaderboard: LeaderboardEntry[] = [];
 
   // Obtener nombres personalizados de equipos si existen en D1
   const customNamesMap: Record<string, string> = {};
@@ -831,76 +784,92 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string, mark
   const rankingRule: "FUTURES" | "PORTFOLIO" = isFutures ? "FUTURES" : "PORTFOLIO";
   const sharedPriceCache = new Map<string, number>();
 
-  for (const group of groups) {
-    const finalGroupName = customNamesMap[group.id] || group.name;
-    try {
-      const data = await getMarkedPortfolio(db, group.id, gameId, isFutures ? "FUTURES" : "PORTFOLIO", sharedPriceCache);
-      const eq = data.portfolio.equity;
-      const dd = Math.max(0, data.portfolio.max_drawdown_nominal ?? 0.0);
-      const peak = data.portfolio.peak_equity ?? Math.max(initialCap, eq);
-      const maxDdPct = data.portfolio.max_drawdown_pct ?? (peak > 1e-6 ? (dd / peak) * 100 : 0.0);
-      const investedValue = data.portfolio.invested_value ?? 0.0;
-      const investedPct = data.portfolio.invested_pct ?? (eq > 1e-6 ? Math.min(100, Math.max(0, (investedValue / eq) * 100)) : 0.0);
-      const isFullyInvested = investedPct >= 95.0;
-      const complianceStatus: "COMPLIANT" | "NON_COMPLIANT_CASH" = isFullyInvested ? "COMPLIANT" : "NON_COMPLIANT_CASH";
-      const score = data.portfolio.score ?? 0.0;
-      const dailyNominalPnl = data.portfolio.dailyNominalPnl ?? 0.0;
-      const hasZeroDrawdown = Boolean(data.portfolio.hasZeroDrawdown);
-
-      leaderboard.push({
-        groupId: group.id,
-        groupName: finalGroupName,
-        initialCapital: initialCap,
-        cashBalance: data.portfolio.cash_balance,
-        usedMargin: data.portfolio.used_margin,
-        unrealizedPnl: data.portfolio.unrealized_pnl,
-        realizedPnl: data.portfolio.realized_pnl,
-        totalFees: data.portfolio.total_fees,
-        equity: eq,
-        roePct: data.portfolio.roe_pct,
-        peakEquity: peak,
-        maxDrawdownNominal: dd,
-        maxDrawdownPct: maxDdPct,
-        investedValue,
-        investedPct,
-        isFullyInvested,
-        complianceStatus,
-        openPositionsCount: data.positions.length,
-        rank: 0,
-        score,
-        dailyNominalPnl,
-        hasZeroDrawdown,
-        rankingRule,
-      });
-    } catch {
-      const defaultScore = isFutures ? initialCap : 0.0;
-      leaderboard.push({
-        groupId: group.id,
-        groupName: finalGroupName,
-        initialCapital: initialCap,
-        cashBalance: initialCap,
-        usedMargin: 0,
-        unrealizedPnl: 0,
-        realizedPnl: 0,
-        totalFees: 0,
-        equity: initialCap,
-        roePct: 0,
-        peakEquity: initialCap,
-        maxDrawdownNominal: 0.0,
-        maxDrawdownPct: 0.0,
-        investedValue: 0.0,
-        investedPct: 0.0,
-        isFullyInvested: false,
-        complianceStatus: "NON_COMPLIANT_CASH",
-        openPositionsCount: 0,
-        rank: 0,
-        score: defaultScore,
-        dailyNominalPnl: 0.0,
-        hasZeroDrawdown: false,
-        rankingRule,
-      });
+  try {
+    const posSymbolsRes = await db
+      .prepare("SELECT DISTINCT symbol FROM paper_positions WHERE game_id = ?")
+      .bind(gameId)
+      .all<{ symbol: string }>();
+    const allSymbols = (posSymbolsRes.results || []).map((r) => r.symbol).filter(Boolean);
+    if (allSymbols.length > 0) {
+      const batchQuotes = await fetchLiveMarketQuotesBatch(allSymbols);
+      for (const [sym, q] of batchQuotes.entries()) {
+        sharedPriceCache.set(sym, q.price);
+      }
     }
-  }
+  } catch {}
+
+  const leaderboard: LeaderboardEntry[] = await Promise.all(
+    groups.map(async (group) => {
+      const finalGroupName = customNamesMap[group.id] || group.name;
+      try {
+        const data = await getMarkedPortfolio(db, group.id, gameId, isFutures ? "FUTURES" : "PORTFOLIO", sharedPriceCache);
+        const eq = data.portfolio.equity;
+        const dd = Math.max(0, data.portfolio.max_drawdown_nominal ?? 0.0);
+        const peak = data.portfolio.peak_equity ?? Math.max(initialCap, eq);
+        const maxDdPct = data.portfolio.max_drawdown_pct ?? (peak > 1e-6 ? (dd / peak) * 100 : 0.0);
+        const investedValue = data.portfolio.invested_value ?? 0.0;
+        const investedPct = data.portfolio.invested_pct ?? (eq > 1e-6 ? Math.min(100, Math.max(0, (investedValue / eq) * 100)) : 0.0);
+        const isFullyInvested = investedPct >= 95.0;
+        const complianceStatus: "COMPLIANT" | "NON_COMPLIANT_CASH" = isFullyInvested ? "COMPLIANT" : "NON_COMPLIANT_CASH";
+        const score = data.portfolio.score ?? 0.0;
+        const dailyNominalPnl = data.portfolio.dailyNominalPnl ?? 0.0;
+        const hasZeroDrawdown = Boolean(data.portfolio.hasZeroDrawdown);
+
+        return {
+          groupId: group.id,
+          groupName: finalGroupName,
+          initialCapital: initialCap,
+          cashBalance: data.portfolio.cash_balance,
+          usedMargin: data.portfolio.used_margin,
+          unrealizedPnl: data.portfolio.unrealized_pnl,
+          realizedPnl: data.portfolio.realized_pnl,
+          totalFees: data.portfolio.total_fees,
+          equity: eq,
+          roePct: data.portfolio.roe_pct,
+          peakEquity: peak,
+          maxDrawdownNominal: dd,
+          maxDrawdownPct: maxDdPct,
+          investedValue,
+          investedPct,
+          isFullyInvested,
+          complianceStatus,
+          openPositionsCount: data.positions.length,
+          rank: 0,
+          score,
+          dailyNominalPnl,
+          hasZeroDrawdown,
+          rankingRule,
+        };
+      } catch {
+        const defaultScore = isFutures ? initialCap : 0.0;
+        return {
+          groupId: group.id,
+          groupName: finalGroupName,
+          initialCapital: initialCap,
+          cashBalance: initialCap,
+          usedMargin: 0,
+          unrealizedPnl: 0,
+          realizedPnl: 0,
+          totalFees: 0,
+          equity: initialCap,
+          roePct: 0,
+          peakEquity: initialCap,
+          maxDrawdownNominal: 0.0,
+          maxDrawdownPct: 0.0,
+          investedValue: 0.0,
+          investedPct: 0.0,
+          isFullyInvested: false,
+          complianceStatus: "NON_COMPLIANT_CASH",
+          openPositionsCount: 0,
+          rank: 0,
+          score: defaultScore,
+          dailyNominalPnl: 0.0,
+          hasZeroDrawdown: false,
+          rankingRule,
+        };
+      }
+    })
+  );
 
   if (isFutures) {
     leaderboard.sort((a, b) => b.equity - a.equity);
