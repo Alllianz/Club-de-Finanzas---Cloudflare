@@ -475,8 +475,8 @@ export const GroupTradingProvider: React.FC<{
         gameId: targetGameId,
         marketType,
       });
-      await refreshTradingData();
       setIsActionLoading(false);
+      void refreshTradingData();
       return { success: true, message: res?.message };
     } catch (err) {
       setIsActionLoading(false);

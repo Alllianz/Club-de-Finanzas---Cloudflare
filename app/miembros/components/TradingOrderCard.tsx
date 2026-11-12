@@ -33,9 +33,10 @@ export const TradingOrderCard: React.FC<{
   const [leverage, setLeverage] = useState<number>(1);
   const [marginMode, setMarginMode] = useState<"ISOLATED" | "CROSS">("ISOLATED");
 
-  const [orderFeedback, setOrderFeedback] = useState<{ type: "success" | "error"; text: string } | null>(
-    null
-  );
+  const [orderFeedback, setOrderFeedback] = useState<{
+    type: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
 
   // Cotización ultra-rápida y en vivo
   const {
@@ -363,6 +364,11 @@ export const TradingOrderCard: React.FC<{
       }
     }
 
+    setOrderFeedback({
+      type: "info",
+      text: "Orden enviada al motor...",
+    });
+
     const res = await placeOrder(
       symbol,
       orderSide,
@@ -477,6 +483,8 @@ export const TradingOrderCard: React.FC<{
           className={`my-4 rounded-lg border p-3.5 text-xs font-semibold ${
             orderFeedback.type === "success"
               ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : orderFeedback.type === "info"
+              ? "border-blue-200 bg-blue-50 text-blue-800"
               : "border-red-200 bg-red-50 text-red-700"
           }`}
         >

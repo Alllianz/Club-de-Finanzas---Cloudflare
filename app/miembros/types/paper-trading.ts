@@ -168,3 +168,27 @@ export interface SaveTournamentParams {
   startDate?: string;
   endDate?: string;
 }
+
+export interface EquityCurvePoint {
+  timestamp: number;
+  date?: string;
+  bucketTs?: number;
+  equity: number;
+  peakEquity: number;
+  drawdownPct: number;
+  maxDrawdownPct: number;
+}
+
+export interface GroupEquitySeries {
+  groupId: string;
+  groupName: string;
+  points: EquityCurvePoint[];
+}
+
+export interface EquityCurveSeriesResult {
+  gameId: string;
+  marketType: "FUTURES" | "PORTFOLIO";
+  frequency: "15m" | "daily";
+  series: GroupEquitySeries[];
+}
+

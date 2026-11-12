@@ -21,7 +21,10 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
   const [sizingMode, setSizingMode] = useState<"CONTRACTS" | "USD">("USD");
   const [amountUsd, setAmountUsd] = useState<string>("1000");
   const [marginMode, setMarginMode] = useState<"ISOLATED" | "CROSS">("ISOLATED");
-  const [feedbackMsg, setFeedbackMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [feedbackMsg, setFeedbackMsg] = useState<{
+    type: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
 
   // Cargar cotización en vivo del contrato
   useEffect(() => {
@@ -128,6 +131,11 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
       });
       return;
     }
+
+    setFeedbackMsg({
+      type: "info",
+      text: "Orden enviada al motor...",
+    });
 
     const res = await placeOrder(
       selectedContract.symbol,
@@ -474,6 +482,8 @@ export const FuturosOrderCard: React.FC<FuturosOrderCardProps> = ({ selectedCont
             className={`rounded-xl p-3 text-xs font-semibold ${
               feedbackMsg.type === "success"
                 ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                : feedbackMsg.type === "info"
+                ? "border border-blue-200 bg-blue-50 text-blue-700"
                 : "border border-rose-200 bg-rose-50 text-rose-700"
             }`}
           >

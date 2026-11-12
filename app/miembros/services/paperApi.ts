@@ -10,6 +10,9 @@ import {
   LeaderboardItem,
   TournamentSettings,
   SaveTournamentParams,
+  EquityCurvePoint,
+  GroupEquitySeries,
+  EquityCurveSeriesResult,
 } from "../types/paper-trading";
 
 const API_BASE = ""; // En producción se invoca relativo al Worker
@@ -373,3 +376,24 @@ export async function fetchDailySnapshotsApi(
     return [];
   }
 }
+
+export async function fetchEquityCurveApi(
+  gameId?: string,
+  marketType?: string,
+  signal?: AbortSignal
+): Promise<EquityCurveSeriesResult | null> {
+  try {
+    const params = new URLSearchParams();
+    if (gameId) params.append("gameId", gameId);
+    if (marketType) params.append("marketType", marketType);
+    const query = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${API_BASE}/api/paper/equity-curve${query}`, {
+      signal,
+    });
+    const data = await res.json();
+    return data.success ? (data.data || data) : null;
+  } catch {
+    return null;
+  }
+}
+

@@ -1,6 +1,3 @@
-// Motor Institucional de Medición de Drawdown Día a Día y Snapshots Diarios
-// Basado en Sylva / Aegis Engine - Cero Look-Ahead Bias (t <= T: estricta causalidad temporal)
-
 import { D1Database, DailySnapshotRecord, PositionRecord, TournamentRecord } from "./types";
 import { fetchLiveMarketQuote } from "./market-feed";
 import {
@@ -14,11 +11,50 @@ import {
 import { OFFICIAL_GROUPS } from "./group-auth";
 
 let dailySnapshotsTableInitialized = false;
+let futures15mTableInitialized = false;
 
-/**
- * Obtiene la fecha del snapshot en formato ISO (YYYY-MM-DD)
- * evaluada en la zona horaria oficial del torneo (America/Argentina/Buenos_Aires)
- */
+export interface FuturesSnapshot15mRecord {
+  id: string;
+  game_id: string;
+  user_id: string;
+  bucket_ts: number;
+  timestamp: number;
+  cash_balance: number;
+  used_margin: number;
+  unrealized_pnl: number;
+  equity: number;
+  peak_equity: number;
+  dd_nominal: number;
+  dd_pct: number;
+  max_dd_nominal: number;
+  max_dd_pct: number;
+  positions_json: string;
+  created_at: number;
+}
+
+export interface EquityCurvePoint {
+  timestamp: number;
+  date?: string;
+  bucketTs?: number;
+  equity: number;
+  peakEquity: number;
+  drawdownPct: number;
+  maxDrawdownPct: number;
+}
+
+export interface GroupEquitySeries {
+  groupId: string;
+  groupName: string;
+  points: EquityCurvePoint[];
+}
+
+export interface EquityCurveSeriesResult {
+  gameId: string;
+  marketType: "FUTURES" | "PORTFOLIO";
+  frequency: "15m" | "daily";
+  series: GroupEquitySeries[];
+}
+
 export function getSnapshotDateString(date: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Argentina/Buenos_Aires",
@@ -28,15 +64,12 @@ export function getSnapshotDateString(date: Date = new Date()): string {
   }).format(date);
 }
 
-/**
- * Garantiza la existencia de la tabla inmutable portfolio_daily_snapshots y sus índices en Cloudflare D1
- */
 export async function ensureDailySnapshotsTable(db: D1Database): Promise<void> {
+  await ensureFutures15mSnapshotsTable(db);
   if (dailySnapshotsTableInitialized) return;
   dailySnapshotsTableInitialized = true;
 
   try {
-    // 1. Crear tabla inmutable portfolio_daily_snapshots
     await db
       .prepare(
         `CREATE TABLE IF NOT EXISTS portfolio_daily_snapshots (
@@ -62,7 +95,6 @@ export async function ensureDailySnapshotsTable(db: D1Database): Promise<void> {
       )
       .run();
 
-    // 2. Índice de consulta rápida por torneo y grupo
     await db
       .prepare(
         `CREATE INDEX IF NOT EXISTS idx_portfolio_daily_snapshots_lookup
@@ -70,20 +102,55 @@ export async function ensureDailySnapshotsTable(db: D1Database): Promise<void> {
       )
       .run();
 
-    // 3. Asegurar columna max_drawdown_pct en paper_portfolios
     try {
       await db.prepare("ALTER TABLE paper_portfolios ADD COLUMN max_drawdown_pct REAL DEFAULT 0.0").run();
     } catch {
-      // Ignorar si ya existe
     }
   } catch (err) {
     console.error("[DailySnapshotEngine] Error al inicializar esquema D1:", err);
   }
 }
 
-/**
- * Obtiene el último snapshot diario registrado para un grupo en un juego específico
- */
+export async function ensureFutures15mSnapshotsTable(db: D1Database): Promise<void> {
+  if (futures15mTableInitialized) return;
+  futures15mTableInitialized = true;
+
+  try {
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS futures_equity_snapshots_15m (
+          id TEXT PRIMARY KEY,
+          game_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          bucket_ts INTEGER NOT NULL,
+          timestamp INTEGER NOT NULL,
+          cash_balance REAL NOT NULL,
+          used_margin REAL NOT NULL,
+          unrealized_pnl REAL NOT NULL,
+          equity REAL NOT NULL,
+          peak_equity REAL NOT NULL,
+          dd_nominal REAL NOT NULL,
+          dd_pct REAL NOT NULL,
+          max_dd_nominal REAL NOT NULL,
+          max_dd_pct REAL NOT NULL,
+          positions_json TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          UNIQUE(game_id, user_id, bucket_ts)
+        )`
+      )
+      .run();
+
+    await db
+      .prepare(
+        `CREATE INDEX IF NOT EXISTS idx_futures_snapshots_15m_lookup
+         ON futures_equity_snapshots_15m(game_id, user_id, bucket_ts DESC)`
+      )
+      .run();
+  } catch (err) {
+    console.error("[DailySnapshotEngine] Error al inicializar tabla futures_equity_snapshots_15m:", err);
+  }
+}
+
 export async function getLatestDailySnapshot(
   db: D1Database,
   gameId: string,
@@ -105,9 +172,6 @@ export async function getLatestDailySnapshot(
   return await db.prepare(query).bind(...params).first<DailySnapshotRecord>();
 }
 
-/**
- * Obtiene el historial cronológico de snapshots de un grupo para gráficos o auditoría
- */
 export async function getDailySnapshotsForGroup(
   db: D1Database,
   gameId: string,
@@ -128,20 +192,6 @@ export async function getDailySnapshotsForGroup(
   return res.results || [];
 }
 
-/**
- * Procesa el snapshot diario de cierre bursátil para todos los grupos activos
- * 
- * Reglas Matemáticas e Institucionales (Sylva / Aegis):
- * 1. NAV_t = cash_balance_t + sum(qty * P_close)
- * 2. Peak_t = max(Peak_{t-1}, NAV_t) con Peak_0 = initialCapital
- * 3. Daily DD Nom = max(0, Peak_t - NAV_t)
- * 4. Daily DD % = Peak_t > 0 ? (Daily DD Nom / Peak_t) * 100 : 0
- * 5. Max DD Nom = max(MaxDD_{t-1}^nom, Daily DD Nom)
- * 6. Max DD % = max(MaxDD_{t-1}^%, Daily DD %)
- * 7. Invested % = NAV_t > 0 ? (invested_value / NAV_t) * 100 : 0
- * 8. Is Fully Invested = Invested % >= 95.0
- * 9. Cero Look-Ahead Bias: Sólo utiliza precios observables al instante t (t <= T).
- */
 export async function processDailyMarketCloseSnapshot(
   db: D1Database,
   customDateStr?: string,
@@ -166,13 +216,10 @@ export async function processDailyMarketCloseSnapshot(
 
   const groups = Object.values(OFFICIAL_GROUPS);
   const createdSnapshots: DailySnapshotRecord[] = [];
-
-  // Cache de cotizaciones al cierre para evitar consultas redundantes a la API externa
   const priceCache = new Map<string, number>();
 
   for (const grp of groups) {
     try {
-      // 1. Obtener datos de portafolio y posiciones actuales
       const port = await ensurePortfolioSeed(db, grp.id, gameId, initialCap, isFutures ? "FUTURES" : marketType);
       const posRes = await db
         .prepare("SELECT * FROM paper_positions WHERE game_id = ? AND user_id = ?")
@@ -181,8 +228,10 @@ export async function processDailyMarketCloseSnapshot(
 
       const positions = posRes.results || [];
 
-      // 2. Calcular valor invertido mark-to-market
+      let totalUsedMargin = 0;
+      let totalUnrealizedPnl = 0;
       let investedValue = 0;
+
       for (const pos of positions) {
         let livePrice = pos.current_price || pos.entry_price;
         if (!priceCache.has(pos.symbol)) {
@@ -194,34 +243,37 @@ export async function processDailyMarketCloseSnapshot(
           }
         }
         livePrice = priceCache.get(pos.symbol) || livePrice;
+
+        let unrealized = 0;
+        if (pos.side === "LONG") {
+          unrealized = (livePrice - pos.entry_price) * pos.quantity;
+        } else {
+          unrealized = (pos.entry_price - livePrice) * pos.quantity;
+        }
+
+        const margin = Number(pos.initial_margin) || 0;
+        totalUsedMargin += margin;
+        totalUnrealizedPnl += unrealized;
         investedValue += pos.quantity * livePrice;
       }
 
-      // 3. Computar NAV al cierre
-      const nav = port.cash_balance + investedValue;
+      const nav = port.cash_balance + totalUsedMargin + totalUnrealizedPnl;
 
-      // 4. Obtener High-Water Mark previo (Peak_{t-1})
       const prevSnapshot = await getLatestDailySnapshot(db, gameId, grp.id, snapshotDate);
-      const prevPeak = prevSnapshot ? prevSnapshot.peak_nav : initialCap;
-      const prevMaxDdNominal = prevSnapshot ? prevSnapshot.max_dd_nominal : 0.0;
-      const prevMaxDdPct = prevSnapshot ? prevSnapshot.max_dd_pct : 0.0;
+      const prevPeak = Math.max(initialCap, Number(port.peak_equity) || 0, Number(prevSnapshot?.peak_nav) || 0);
+      const prevMaxDdNominal = Math.max(Number(port.max_drawdown_nominal) || 0.0, Number(prevSnapshot?.max_dd_nominal) || 0.0);
+      const prevMaxDdPct = Math.max(Number(port.max_drawdown_pct) || 0.0, Number(prevSnapshot?.max_dd_pct) || 0.0);
 
-      // 5. High-Water Mark actual
       const peakNav = Math.max(prevPeak, nav);
-
-      // 6. Drawdown diario nominal y porcentual
       const dailyDdNominal = Math.max(0, peakNav - nav);
       const dailyDdPct = peakNav > 1e-6 ? (dailyDdNominal / peakNav) * 100 : 0.0;
 
-      // 7. Máximo Drawdown acumulado
       const maxDdNominal = Math.max(prevMaxDdNominal, dailyDdNominal);
       const maxDdPct = Math.max(prevMaxDdPct, dailyDdPct);
 
-      // 8. Métricas de Cartera 100% Invertida (umbral 95.0%)
       const investedPct = nav > 1e-6 ? Math.min(100, Math.max(0, (investedValue / nav) * 100)) : 0.0;
       const isFullyInvested = investedPct >= 95.0 ? 1 : 0;
 
-      // 9. Serializar posiciones
       const positionsJson = JSON.stringify(
         positions.map((p) => ({
           symbol: p.symbol,
@@ -254,7 +306,6 @@ export async function processDailyMarketCloseSnapshot(
         created_at: nowMs,
       };
 
-      // 10. Inserción inmutable / idempotente en SQLite D1
       await db
         .prepare(
           `INSERT INTO portfolio_daily_snapshots (
@@ -298,7 +349,6 @@ export async function processDailyMarketCloseSnapshot(
         )
         .run();
 
-      // 11. Sincronización atómica en paper_portfolios
       await db
         .prepare(
           `UPDATE paper_portfolios 
@@ -322,5 +372,300 @@ export async function processDailyMarketCloseSnapshot(
     snapshotDate,
     processedCount: createdSnapshots.length,
     snapshots: createdSnapshots,
+  };
+}
+
+export async function processFutures15mSnapshots(
+  db: D1Database,
+  targetGameId?: string,
+  customTs?: number
+): Promise<{
+  success: boolean;
+  bucketTs: number;
+  processedCount: number;
+  snapshots: FuturesSnapshot15mRecord[];
+}> {
+  await ensureFutures15mSnapshotsTable(db);
+
+  const nowMs = customTs || Date.now();
+  const BUCKET_15M_MS = 15 * 60 * 1000;
+  const bucketTs = Math.floor(nowMs / BUCKET_15M_MS) * BUCKET_15M_MS;
+
+  const tournament = targetGameId
+    ? await getTournamentById(db, targetGameId)
+    : await getActiveTournament(db, "FUTURES");
+  const gameId = targetGameId || tournament?.id || DEFAULT_FUTURES_GAME_ID;
+  const initialCap = tournament?.initial_capital || 10000.0;
+
+  const groups = Object.values(OFFICIAL_GROUPS);
+  const createdSnapshots: FuturesSnapshot15mRecord[] = [];
+  const priceCache = new Map<string, number>();
+
+  for (const grp of groups) {
+    try {
+      const port = await ensurePortfolioSeed(db, grp.id, gameId, initialCap, "FUTURES");
+      const posRes = await db
+        .prepare("SELECT * FROM paper_positions WHERE game_id = ? AND user_id = ?")
+        .bind(gameId, grp.id)
+        .all<PositionRecord>();
+
+      const positions = posRes.results || [];
+
+      let totalUsedMargin = 0;
+      let totalUnrealizedPnl = 0;
+
+      for (const pos of positions) {
+        let livePrice = pos.current_price || pos.entry_price;
+        if (!priceCache.has(pos.symbol)) {
+          try {
+            const q = await fetchLiveMarketQuote(pos.symbol);
+            priceCache.set(pos.symbol, q.price);
+          } catch {
+            priceCache.set(pos.symbol, livePrice);
+          }
+        }
+        livePrice = priceCache.get(pos.symbol) || livePrice;
+
+        let unrealized = 0;
+        if (pos.side === "LONG") {
+          unrealized = (livePrice - pos.entry_price) * pos.quantity;
+        } else {
+          unrealized = (pos.entry_price - livePrice) * pos.quantity;
+        }
+
+        totalUsedMargin += Number(pos.initial_margin) || 0;
+        totalUnrealizedPnl += unrealized;
+      }
+
+      const equity = port.cash_balance + totalUsedMargin + totalUnrealizedPnl;
+
+      const prevSnap = await db
+        .prepare(
+          `SELECT peak_equity, max_dd_nominal, max_dd_pct 
+           FROM futures_equity_snapshots_15m 
+           WHERE game_id = ? AND user_id = ? AND bucket_ts < ? 
+           ORDER BY bucket_ts DESC LIMIT 1`
+        )
+        .bind(gameId, grp.id, bucketTs)
+        .first<{ peak_equity: number; max_dd_nominal: number; max_dd_pct: number }>();
+
+      const prevPeak = Math.max(initialCap, Number(port.peak_equity) || 0, Number(prevSnap?.peak_equity) || 0);
+      const prevMaxDdNominal = Math.max(Number(port.max_drawdown_nominal) || 0.0, Number(prevSnap?.max_dd_nominal) || 0.0);
+      const prevMaxDdPct = Math.max(Number(port.max_drawdown_pct) || 0.0, Number(prevSnap?.max_dd_pct) || 0.0);
+
+      const peakEquity = Math.max(prevPeak, equity);
+      const ddNominal = Math.max(0, peakEquity - equity);
+      const ddPct = peakEquity > 1e-6 ? (ddNominal / peakEquity) * 100 : 0.0;
+
+      const maxDdNominal = Math.max(prevMaxDdNominal, ddNominal);
+      const maxDdPct = Math.max(prevMaxDdPct, ddPct);
+
+      const positionsJson = JSON.stringify(
+        positions.map((p) => ({
+          symbol: p.symbol,
+          quantity: p.quantity,
+          entryPrice: p.entry_price,
+          currentPrice: priceCache.get(p.symbol) || p.current_price,
+          side: p.side,
+          initialMargin: p.initial_margin,
+          leverage: p.leverage,
+        }))
+      );
+
+      const snapshotId = `snp15m_${gameId}_${grp.id}_${bucketTs}`;
+
+      const snapshotRecord: FuturesSnapshot15mRecord = {
+        id: snapshotId,
+        game_id: gameId,
+        user_id: grp.id,
+        bucket_ts: bucketTs,
+        timestamp: nowMs,
+        cash_balance: port.cash_balance,
+        used_margin: totalUsedMargin,
+        unrealized_pnl: totalUnrealizedPnl,
+        equity,
+        peak_equity: peakEquity,
+        dd_nominal: ddNominal,
+        dd_pct: ddPct,
+        max_dd_nominal: maxDdNominal,
+        max_dd_pct: maxDdPct,
+        positions_json: positionsJson,
+        created_at: nowMs,
+      };
+
+      await db
+        .prepare(
+          `INSERT INTO futures_equity_snapshots_15m (
+             id, game_id, user_id, bucket_ts, timestamp,
+             cash_balance, used_margin, unrealized_pnl,
+             equity, peak_equity, dd_nominal, dd_pct,
+             max_dd_nominal, max_dd_pct, positions_json, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(game_id, user_id, bucket_ts) DO UPDATE SET
+             timestamp = excluded.timestamp,
+             cash_balance = excluded.cash_balance,
+             used_margin = excluded.used_margin,
+             unrealized_pnl = excluded.unrealized_pnl,
+             equity = excluded.equity,
+             peak_equity = excluded.peak_equity,
+             dd_nominal = excluded.dd_nominal,
+             dd_pct = excluded.dd_pct,
+             max_dd_nominal = excluded.max_dd_nominal,
+             max_dd_pct = excluded.max_dd_pct,
+             positions_json = excluded.positions_json`
+        )
+        .bind(
+          snapshotId,
+          gameId,
+          grp.id,
+          bucketTs,
+          nowMs,
+          port.cash_balance,
+          totalUsedMargin,
+          totalUnrealizedPnl,
+          equity,
+          peakEquity,
+          ddNominal,
+          ddPct,
+          maxDdNominal,
+          maxDdPct,
+          positionsJson,
+          nowMs
+        )
+        .run();
+
+      await db
+        .prepare(
+          `UPDATE paper_portfolios 
+           SET peak_equity = ?, max_drawdown_nominal = ?, max_drawdown_pct = ?, updated_at = ?
+           WHERE game_id = ? AND user_id = ?`
+        )
+        .bind(peakEquity, maxDdNominal, maxDdPct, nowMs, gameId, grp.id)
+        .run();
+
+      createdSnapshots.push(snapshotRecord);
+    } catch (grpErr) {
+      console.warn(
+        `[DailySnapshotEngine] Error en snapshot 15m para grupo ${grp.id}:`,
+        grpErr instanceof Error ? grpErr.message : grpErr
+      );
+    }
+  }
+
+  return {
+    success: true,
+    bucketTs,
+    processedCount: createdSnapshots.length,
+    snapshots: createdSnapshots,
+  };
+}
+
+export async function getEquityCurveSeries(
+  db: D1Database,
+  gameId?: string,
+  marketType?: string
+): Promise<EquityCurveSeriesResult> {
+  const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (gameId && gameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = gameId ? await getTournamentById(db, gameId) : await getActiveTournament(db, isFutures ? "FUTURES" : marketType);
+  const resolvedGameId = gameId || tournament?.id || defaultGameId;
+
+  const customNamesMap: Record<string, string> = {};
+  try {
+    const rows = await db.prepare("SELECT group_id, display_name FROM group_custom_names").all();
+    if (rows && rows.results) {
+      for (const r of rows.results as any[]) {
+        if (r.group_id && r.display_name) {
+          customNamesMap[r.group_id] = r.display_name;
+        }
+      }
+    }
+  } catch {}
+
+  const groups = Object.values(OFFICIAL_GROUPS);
+  const seriesByGroup: Record<string, GroupEquitySeries> = {};
+
+  for (const grp of groups) {
+    const groupName = customNamesMap[grp.id] || grp.name;
+    seriesByGroup[grp.id] = {
+      groupId: grp.id,
+      groupName,
+      points: [],
+    };
+  }
+
+  if (isFutures) {
+    await ensureFutures15mSnapshotsTable(db);
+    const rowsRes = await db
+      .prepare(
+        `SELECT user_id, bucket_ts, timestamp, equity, peak_equity, dd_pct, max_dd_pct
+         FROM futures_equity_snapshots_15m
+         WHERE game_id = ?
+         ORDER BY bucket_ts ASC`
+      )
+      .bind(resolvedGameId)
+      .all<{
+        user_id: string;
+        bucket_ts: number;
+        timestamp: number;
+        equity: number;
+        peak_equity: number;
+        dd_pct: number;
+        max_dd_pct: number;
+      }>();
+
+    const rows = rowsRes.results || [];
+    for (const r of rows) {
+      if (seriesByGroup[r.user_id]) {
+        seriesByGroup[r.user_id].points.push({
+          timestamp: r.bucket_ts || r.timestamp,
+          bucketTs: r.bucket_ts,
+          equity: r.equity,
+          peakEquity: r.peak_equity,
+          drawdownPct: r.dd_pct,
+          maxDrawdownPct: r.max_dd_pct,
+        });
+      }
+    }
+  } else {
+    await ensureDailySnapshotsTable(db);
+    const rowsRes = await db
+      .prepare(
+        `SELECT user_id, snapshot_date, timestamp, nav, peak_nav, daily_dd_pct, max_dd_pct
+         FROM portfolio_daily_snapshots
+         WHERE game_id = ?
+         ORDER BY snapshot_date ASC`
+      )
+      .bind(resolvedGameId)
+      .all<{
+        user_id: string;
+        snapshot_date: string;
+        timestamp: number;
+        nav: number;
+        peak_nav: number;
+        daily_dd_pct: number;
+        max_dd_pct: number;
+      }>();
+
+    const rows = rowsRes.results || [];
+    for (const r of rows) {
+      if (seriesByGroup[r.user_id]) {
+        seriesByGroup[r.user_id].points.push({
+          timestamp: r.timestamp,
+          date: r.snapshot_date,
+          equity: r.nav,
+          peakEquity: r.peak_nav,
+          drawdownPct: r.daily_dd_pct,
+          maxDrawdownPct: r.max_dd_pct,
+        });
+      }
+    }
+  }
+
+  return {
+    gameId: resolvedGameId,
+    marketType: isFutures ? "FUTURES" : "PORTFOLIO",
+    frequency: isFutures ? "15m" : "daily",
+    series: Object.values(seriesByGroup),
   };
 }

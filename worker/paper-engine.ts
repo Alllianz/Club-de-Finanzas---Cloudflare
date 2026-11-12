@@ -6,6 +6,7 @@ import { fetchLiveMarketQuote } from "./market-feed";
 import { OFFICIAL_GROUPS } from "./group-auth";
 import { checkTournamentDateRange, parseTournamentDateBoundary, formatTournamentDate } from "./tournament-dates";
 export { checkTournamentDateRange, parseTournamentDateBoundary, formatTournamentDate };
+export { ensureFutures15mSnapshotsTable, processFutures15mSnapshots, getEquityCurveSeries } from "./daily-snapshot-engine";
 
 export const DEFAULT_GAME_ID = "torneo-club-2026";
 export const DEFAULT_FUTURES_GAME_ID = "torneo-futuros-2026";
@@ -117,7 +118,8 @@ export async function getMarkedPortfolio(
   db: D1Database,
   groupId: string,
   targetGameId?: string,
-  marketType?: string
+  marketType?: string,
+  priceCache?: Map<string, number>
 ) {
   const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (targetGameId && targetGameId.toLowerCase().includes("futur"));
   const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
@@ -133,7 +135,7 @@ export async function getMarkedPortfolio(
 
   const rawPositions = posResult.results || [];
   const markedPositions: PositionRecord[] = [];
-  const priceCache = new Map<string, number>();
+  const cache = priceCache || new Map<string, number>();
 
   let totalUsedMargin = 0;
   let totalUnrealizedPnl = 0;
@@ -141,16 +143,16 @@ export async function getMarkedPortfolio(
   for (const pos of rawPositions) {
     let currentPrice = pos.current_price || pos.entry_price;
 
-    if (!priceCache.has(pos.symbol)) {
+    if (!cache.has(pos.symbol)) {
       try {
         const quote = await fetchLiveMarketQuote(pos.symbol);
-        priceCache.set(pos.symbol, quote.price);
+        cache.set(pos.symbol, quote.price);
       } catch {
-        priceCache.set(pos.symbol, currentPrice);
+        cache.set(pos.symbol, currentPrice);
       }
     }
 
-    const livePrice = priceCache.get(pos.symbol) || currentPrice;
+    const livePrice = cache.get(pos.symbol) || currentPrice;
     let unrealized = 0;
     if (pos.side === "LONG") {
       unrealized = (livePrice - pos.entry_price) * pos.quantity;
@@ -173,13 +175,9 @@ export async function getMarkedPortfolio(
   const equity = port.cash_balance + totalUsedMargin + totalUnrealizedPnl;
   const roePct = ((equity - initialCap) / initialCap) * 100;
 
-  // =========================================================================
-  // CÁLCULO DE MÁXIMO DRAWDOWN NOMINAL (FÓRMULA INSTITUCIONAL SYLVA / ASTRO EVO)
-  // DD_nom = Peak - Equity. CERO LOOK-AHEAD BIAS (t <= T: causalidad temporal estricta)
-  // =========================================================================
-  let peak = initialCap;
-  let maxDdNominal = 0.0;
-  let runningEquity = initialCap;
+  let peak = Math.max(initialCap, Number(port.peak_equity) || 0);
+  let maxDdNominal = Math.max(0, Number(port.max_drawdown_nominal) || 0);
+  let maxDdPct = Math.max(0, Number(port.max_drawdown_pct) || 0);
 
   try {
     const tradesRes = await db
@@ -190,9 +188,8 @@ export async function getMarkedPortfolio(
       .all<{ realized_pnl: number; fee: number; timestamp: number }>();
 
     if (tradesRes.results && tradesRes.results.length > 0) {
+      let runningEquity = initialCap;
       for (const tr of tradesRes.results) {
-        // En trades de cierre realized_pnl ya es neto (grossPnl - closeFee).
-        // Si realized_pnl === 0 (trade de apertura), se descuenta tr.fee.
         if (tr.realized_pnl !== 0) {
           runningEquity += tr.realized_pnl;
         } else {
@@ -206,13 +203,15 @@ export async function getMarkedPortfolio(
         if (dd > maxDdNominal) {
           maxDdNominal = dd;
         }
+        const ddPct = peak > 1e-6 ? (dd / peak) * 100 : 0.0;
+        if (ddPct > maxDdPct) {
+          maxDdPct = ddPct;
+        }
       }
     }
   } catch {
-    // Si no hay tabla de trades, se utiliza el estado de equidad actual
   }
 
-  // Evaluar contra el patrimonio actual Mark-to-Market (equity)
   if (equity > peak) {
     peak = equity;
   }
@@ -220,7 +219,10 @@ export async function getMarkedPortfolio(
   if (liveDd > maxDdNominal) {
     maxDdNominal = liveDd;
   }
-  const maxDdPct = peak > 1e-6 ? (maxDdNominal / peak) * 100 : 0.0;
+  const liveDdPct = peak > 1e-6 ? (liveDd / peak) * 100 : 0.0;
+  if (liveDdPct > maxDdPct) {
+    maxDdPct = liveDdPct;
+  }
 
   // Métricas de asignación y Cartera 100% Invertida (umbral 95.0%)
   const investedValue = markedPositions.reduce(
@@ -764,11 +766,12 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string, mark
   }
 
   const rankingRule: "FUTURES" | "PORTFOLIO" = isFutures ? "FUTURES" : "PORTFOLIO";
+  const sharedPriceCache = new Map<string, number>();
 
   for (const group of groups) {
     const finalGroupName = customNamesMap[group.id] || group.name;
     try {
-      const data = await getMarkedPortfolio(db, group.id, gameId, isFutures ? "FUTURES" : "PORTFOLIO");
+      const data = await getMarkedPortfolio(db, group.id, gameId, isFutures ? "FUTURES" : "PORTFOLIO", sharedPriceCache);
       const eq = data.portfolio.equity;
       const dd = Math.max(0, data.portfolio.max_drawdown_nominal ?? 0.0);
       const peak = data.portfolio.peak_equity ?? Math.max(initialCap, eq);
@@ -779,22 +782,16 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string, mark
       const complianceStatus: "COMPLIANT" | "NON_COMPLIANT_CASH" = isFullyInvested ? "COMPLIANT" : "NON_COMPLIANT_CASH";
       const netProfit = eq - initialCap;
 
-      // Factor de penalización cuadrática para efectivo ocioso (tolerancia 5% => umbral 95.0%)
       const investmentFactor = isFullyInvested ? 1.0 : Math.pow(Math.max(0, investedPct) / 95.0, 2);
 
-      // Cálculo de Score Oficial según tipo de torneo
       let score = 0;
       if (isFutures) {
-        // En futuros el primer puesto es el que más Capital Total hace, penalizado si tiene caja ociosa
         score = eq * investmentFactor;
       } else {
-        // En portafolio el criterio institucional es:
-        // Score = ((Capital Total - Capital Inicial) / max(0.01, maxDrawdownPct)) * Factor Inversión
-        const effectiveDd = Math.max(0.01, maxDdPct);
+        const effectiveDd = Math.max(1.0, maxDdPct);
         if (netProfit >= 0) {
           score = (netProfit / effectiveDd) * investmentFactor;
         } else {
-          // Si tiene pérdida y además caja ociosa no invertida, la penalización agrava el score negativo
           score = (netProfit / effectiveDd) / Math.max(0.05, investmentFactor);
         }
       }

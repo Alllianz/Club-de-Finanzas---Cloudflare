@@ -28,7 +28,9 @@ import {
 } from "./limit-order-engine";
 import {
   processDailyMarketCloseSnapshot,
+  processFutures15mSnapshots,
   getDailySnapshotsForGroup,
+  getEquityCurveSeries,
 } from "./daily-snapshot-engine";
 import { ejecutarOptimizacionCartera } from "./portfolio-quant/markowitz-optimizer";
 import { ejecutarIsOos } from "./portfolio-quant/is-oos-engine";
@@ -611,6 +613,32 @@ export default {
           JSON.stringify({
             success: false,
             error: err instanceof Error ? err.message : "Error al procesar snapshot diario.",
+          }),
+          { status: 500, headers: corsHeaders }
+        );
+      }
+    }
+
+    if (url.pathname === "/api/paper/equity-curve" && request.method === "GET") {
+      try {
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Base de datos D1 no disponible." }),
+            { status: 503, headers: corsHeaders }
+          );
+        }
+        const gameId = url.searchParams.get("gameId")?.trim() || undefined;
+        const marketType = url.searchParams.get("marketType")?.trim() || undefined;
+        const result = await getEquityCurveSeries(env.DB, gameId, marketType);
+        return new Response(
+          JSON.stringify({ success: true, data: result, ...result }),
+          { status: 200, headers: corsHeaders }
+        );
+      } catch (err) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : "Error al obtener curva de equity.",
           }),
           { status: 500, headers: corsHeaders }
         );
@@ -1243,10 +1271,20 @@ export default {
     if (env.DB) {
       await matchPendingOrders(env.DB);
       try {
-        await processDailyMarketCloseSnapshot(env.DB, undefined, undefined, "PORTFOLIO");
-        await processDailyMarketCloseSnapshot(env.DB, undefined, undefined, "FUTURES");
+        const now = new Date(event.scheduledTime || Date.now());
+        const utcMinute = now.getUTCMinutes();
+        const utcHour = now.getUTCHours();
+        const utcDay = now.getUTCDay();
+
+        if (utcMinute % 15 === 0) {
+          await processFutures15mSnapshots(env.DB);
+        }
+
+        if (utcDay >= 1 && utcDay <= 5 && utcHour === 20 && utcMinute === 0) {
+          await processDailyMarketCloseSnapshot(env.DB, undefined, undefined, "PORTFOLIO");
+        }
       } catch (snpErr) {
-        console.warn("[Worker Scheduled] Error al computar daily snapshot:", snpErr);
+        console.warn("[Worker Scheduled] Error al computar snapshot:", snpErr);
       }
     }
   },
