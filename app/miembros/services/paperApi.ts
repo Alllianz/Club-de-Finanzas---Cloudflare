@@ -75,10 +75,17 @@ export async function fetchQuotesBatch(symbols: string[]): Promise<Record<string
 
 export async function fetchPortfolio(
   groupId: string,
-  gameId?: string
+  gameId?: string,
+  marketType?: string,
+  signal?: AbortSignal
 ): Promise<{ portfolio: GroupPortfolio; positions: OpenPosition[] }> {
-  const query = gameId ? `?gameId=${encodeURIComponent(gameId)}` : "";
-  const res = await fetch(`${API_BASE}/api/paper/portfolio/${encodeURIComponent(groupId)}${query}`);
+  const params = new URLSearchParams();
+  if (gameId) params.append("gameId", gameId);
+  if (marketType) params.append("marketType", marketType);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`${API_BASE}/api/paper/portfolio/${encodeURIComponent(groupId)}${query}`, {
+    signal,
+  });
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || "No se pudo consultar el portafolio.");
@@ -97,6 +104,7 @@ export async function submitOrder(payload: {
   leverage: number;
   marginMode?: "ISOLATED" | "CROSS";
   gameId?: string;
+  marketType?: string;
 }) {
   const res = await fetch(`${API_BASE}/api/paper/orders`, {
     method: "POST",
@@ -110,9 +118,19 @@ export async function submitOrder(payload: {
   return data.data;
 }
 
-export async function fetchPendingOrders(groupId: string, gameId?: string): Promise<PendingOrder[]> {
-  const query = gameId ? `?gameId=${encodeURIComponent(gameId)}` : "";
-  const res = await fetch(`${API_BASE}/api/paper/orders/${encodeURIComponent(groupId)}${query}`);
+export async function fetchPendingOrders(
+  groupId: string,
+  gameId?: string,
+  marketType?: string,
+  signal?: AbortSignal
+): Promise<PendingOrder[]> {
+  const params = new URLSearchParams();
+  if (gameId) params.append("gameId", gameId);
+  if (marketType) params.append("marketType", marketType);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`${API_BASE}/api/paper/orders/${encodeURIComponent(groupId)}${query}`, {
+    signal,
+  });
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || "Error al consultar órdenes.");
@@ -120,12 +138,17 @@ export async function fetchPendingOrders(groupId: string, gameId?: string): Prom
   return data.data || [];
 }
 
-export async function cancelOrderApi(groupId: string, orderId: string, gameId?: string): Promise<{ success: boolean; error?: string }> {
+export async function cancelOrderApi(
+  groupId: string,
+  orderId: string,
+  gameId?: string,
+  marketType?: string
+): Promise<{ success: boolean; error?: string }> {
   try {
     const res = await fetch(`${API_BASE}/api/paper/orders/cancel`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groupId, orderId, gameId }),
+      body: JSON.stringify({ groupId, orderId, gameId, marketType }),
     });
     const data = await res.json();
     if (!res.ok || !data.success) {
@@ -140,11 +163,17 @@ export async function cancelOrderApi(groupId: string, orderId: string, gameId?: 
   }
 }
 
-export async function closePositionApi(groupId: string, positionId: string, gameId?: string, quantity?: number) {
+export async function closePositionApi(
+  groupId: string,
+  positionId: string,
+  gameId?: string,
+  quantity?: number,
+  marketType?: string
+) {
   const res = await fetch(`${API_BASE}/api/paper/positions/close`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ groupId, positionId, gameId, quantity }),
+    body: JSON.stringify({ groupId, positionId, gameId, quantity, marketType }),
   });
   const data = await res.json();
   if (!res.ok || !data.success) {
@@ -153,9 +182,19 @@ export async function closePositionApi(groupId: string, positionId: string, game
   return data.data;
 }
 
-export async function fetchTradesHistory(groupId: string, gameId?: string): Promise<ExecutedTrade[]> {
-  const query = gameId ? `?gameId=${encodeURIComponent(gameId)}` : "";
-  const res = await fetch(`${API_BASE}/api/paper/trades/${encodeURIComponent(groupId)}${query}`);
+export async function fetchTradesHistory(
+  groupId: string,
+  gameId?: string,
+  marketType?: string,
+  signal?: AbortSignal
+): Promise<ExecutedTrade[]> {
+  const params = new URLSearchParams();
+  if (gameId) params.append("gameId", gameId);
+  if (marketType) params.append("marketType", marketType);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`${API_BASE}/api/paper/trades/${encodeURIComponent(groupId)}${query}`, {
+    signal,
+  });
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || "Error al obtener historial de trades.");
@@ -163,9 +202,18 @@ export async function fetchTradesHistory(groupId: string, gameId?: string): Prom
   return data.data || [];
 }
 
-export async function fetchLeaderboardApi(gameId?: string): Promise<LeaderboardItem[]> {
-  const query = gameId ? `?gameId=${encodeURIComponent(gameId)}` : "";
-  const res = await fetch(`${API_BASE}/api/paper/leaderboard${query}`);
+export async function fetchLeaderboardApi(
+  gameId?: string,
+  marketType?: string,
+  signal?: AbortSignal
+): Promise<LeaderboardItem[]> {
+  const params = new URLSearchParams();
+  if (gameId) params.append("gameId", gameId);
+  if (marketType) params.append("marketType", marketType);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`${API_BASE}/api/paper/leaderboard${query}`, {
+    signal,
+  });
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || "Error al cargar el leaderboard.");
@@ -175,14 +223,17 @@ export async function fetchLeaderboardApi(gameId?: string): Promise<LeaderboardI
 
 export async function fetchTournamentsList(
   groupId?: string,
-  marketType?: string
+  marketType?: string,
+  signal?: AbortSignal
 ): Promise<TournamentSettings[]> {
   try {
     const params = new URLSearchParams();
     if (groupId) params.append("groupId", groupId);
     if (marketType) params.append("marketType", marketType);
     const query = params.toString() ? `?${params.toString()}` : "";
-    const res = await fetch(`${API_BASE}/api/paper/tournaments${query}`);
+    const res = await fetch(`${API_BASE}/api/paper/tournaments${query}`, {
+      signal,
+    });
     const data = await res.json();
     if (!res.ok || !data.success) {
       return [];
@@ -239,10 +290,15 @@ export async function deleteTournamentApi(
   }
 }
 
-export async function fetchActiveTournament(marketType?: string): Promise<TournamentSettings | null> {
+export async function fetchActiveTournament(
+  marketType?: string,
+  signal?: AbortSignal
+): Promise<TournamentSettings | null> {
   try {
     const query = marketType ? `?marketType=${encodeURIComponent(marketType)}` : "";
-    const res = await fetch(`${API_BASE}/api/paper/tournament${query}`);
+    const res = await fetch(`${API_BASE}/api/paper/tournament${query}`, {
+      signal,
+    });
     const data = await res.json();
     if (!res.ok || !data.success) {
       return null;
@@ -300,12 +356,17 @@ export async function renameGroupApi(
 
 export async function fetchDailySnapshotsApi(
   groupId: string,
-  gameId?: string
+  gameId?: string,
+  marketType?: string,
+  signal?: AbortSignal
 ): Promise<any[]> {
   try {
     const params = new URLSearchParams({ groupId });
     if (gameId) params.append("gameId", gameId);
-    const res = await fetch(`${API_BASE}/api/paper/daily-snapshots?${params.toString()}`);
+    if (marketType) params.append("marketType", marketType);
+    const res = await fetch(`${API_BASE}/api/paper/daily-snapshots?${params.toString()}`, {
+      signal,
+    });
     const data = await res.json();
     return data.success ? data.data : [];
   } catch {

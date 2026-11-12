@@ -60,11 +60,16 @@ export async function ensurePortfolioSeed(
   db: D1Database,
   groupId: string,
   customGameId?: string,
-  initialCap?: number
+  initialCap?: number,
+  marketType?: string
 ): Promise<PortfolioRecord> {
-  const tournament = await getActiveTournament(db);
-  const gameId = customGameId || tournament?.id || DEFAULT_GAME_ID;
-  const capital = initialCap || tournament?.initial_capital || INITIAL_CAPITAL;
+  const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (customGameId && customGameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = customGameId
+    ? await getTournamentById(db, customGameId)
+    : await getActiveTournament(db, isFutures ? "FUTURES" : marketType);
+  const gameId = customGameId || tournament?.id || defaultGameId;
+  const capital = initialCap || tournament?.initial_capital || (isFutures ? 10000.0 : INITIAL_CAPITAL);
   const now = Date.now();
 
   // Asegurar columnas de drawdown en D1
@@ -108,12 +113,19 @@ export async function ensurePortfolioSeed(
 /**
  * Re-cotiza posiciones abiertas y calcula el patrimonio Mark-to-Market
  */
-export async function getMarkedPortfolio(db: D1Database, groupId: string, targetGameId?: string) {
-  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
-  const gameId = tournament?.id || targetGameId || DEFAULT_GAME_ID;
-  const initialCap = tournament?.initial_capital || INITIAL_CAPITAL;
+export async function getMarkedPortfolio(
+  db: D1Database,
+  groupId: string,
+  targetGameId?: string,
+  marketType?: string
+) {
+  const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (targetGameId && targetGameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db, isFutures ? "FUTURES" : marketType);
+  const gameId = tournament?.id || targetGameId || defaultGameId;
+  const initialCap = tournament?.initial_capital || (isFutures ? 10000.0 : INITIAL_CAPITAL);
 
-  const port = await ensurePortfolioSeed(db, groupId, gameId, initialCap);
+  const port = await ensurePortfolioSeed(db, groupId, gameId, initialCap, isFutures ? "FUTURES" : marketType);
   const posResult = await db
     .prepare("SELECT * FROM paper_positions WHERE game_id = ? AND user_id = ?")
     .bind(gameId, groupId)
@@ -388,6 +400,7 @@ export async function executeOrder(
     leverage?: number;
     marginMode?: "ISOLATED" | "CROSS";
     gameId?: string;
+    marketType?: string;
   }
 ) {
   const symbol = input.symbol.trim().toUpperCase();
@@ -400,10 +413,11 @@ export async function executeOrder(
   if (!symbol) throw new Error("El símbolo es requerido.");
   if (isNaN(quantity) || quantity <= 0) throw new Error("La cantidad debe ser mayor a 0.");
 
-  // Validación de reglas del torneo (activo o especificado por el grupo)
-  const tournament = input.gameId ? await getTournamentById(db, input.gameId) : await getActiveTournament(db);
-  const gameId = tournament?.id || input.gameId || DEFAULT_GAME_ID;
-  const initialCap = tournament?.initial_capital || INITIAL_CAPITAL;
+  const isFutures = (input.marketType || "").toUpperCase() === "FUTURES" || (input.gameId && input.gameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = input.gameId ? await getTournamentById(db, input.gameId) : await getActiveTournament(db, isFutures ? "FUTURES" : input.marketType);
+  const gameId = tournament?.id || input.gameId || defaultGameId;
+  const initialCap = tournament?.initial_capital || (isFutures ? 10000.0 : INITIAL_CAPITAL);
   const maxAllowedLeverage = tournament?.max_leverage || MAX_LEVERAGE;
 
   // 1. Restricción estricta por fechas de vigencia del torneo (Zero Look-Ahead Bias)
@@ -461,7 +475,7 @@ export async function executeOrder(
   const requiredFunds = initialMargin + fee;
 
   // Verificar caja disponible en portafolio
-  const port = await ensurePortfolioSeed(db, groupId, gameId, initialCap);
+  const port = await ensurePortfolioSeed(db, groupId, gameId, initialCap, isFutures ? "FUTURES" : input.marketType);
   if (port.cash_balance < requiredFunds) {
     throw new Error(
       `Poder de compra insuficiente: la operación requiere $${requiredFunds.toFixed(2)} ($${initialMargin.toFixed(2)} de margen + $${fee.toFixed(2)} de comisión) y el grupo dispone de $${port.cash_balance.toFixed(2)} de liquidez.`
@@ -562,10 +576,13 @@ export async function closePosition(
   groupId: string,
   positionId: string,
   targetGameId?: string,
-  closeQuantity?: number
+  closeQuantity?: number,
+  marketType?: string
 ) {
-  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
-  const gameId = tournament?.id || targetGameId || DEFAULT_GAME_ID;
+  const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (targetGameId && targetGameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db, isFutures ? "FUTURES" : marketType);
+  const gameId = tournament?.id || targetGameId || defaultGameId;
 
   // Restricción estricta por fechas de vigencia del torneo (Zero Look-Ahead Bias)
   const dateCheck = checkTournamentDateRange(tournament);
@@ -694,9 +711,11 @@ export async function closePosition(
 /**
  * Consulta el historial de trades de un grupo
  */
-export async function getTradesHistory(db: D1Database, groupId: string, targetGameId?: string): Promise<TradeRecord[]> {
-  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
-  const gameId = tournament?.id || targetGameId || DEFAULT_GAME_ID;
+export async function getTradesHistory(db: D1Database, groupId: string, targetGameId?: string, marketType?: string): Promise<TradeRecord[]> {
+  const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (targetGameId && targetGameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db, isFutures ? "FUTURES" : marketType);
+  const gameId = tournament?.id || targetGameId || defaultGameId;
 
   const res = await db
     .prepare(
@@ -714,10 +733,13 @@ export async function getTradesHistory(db: D1Database, groupId: string, targetGa
 /**
  * Genera el Leaderboard en tiempo real evaluando el patrimonio Mark-to-Market de los grupos
  */
-export async function getLeaderboard(db: D1Database, targetGameId?: string): Promise<LeaderboardEntry[]> {
-  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
-  const gameId = targetGameId || tournament?.id || DEFAULT_GAME_ID;
-  const initialCap = tournament?.initial_capital || INITIAL_CAPITAL;
+export async function getLeaderboard(db: D1Database, targetGameId?: string, marketType?: string): Promise<LeaderboardEntry[]> {
+  const isFuturesMarket = (marketType || "").toUpperCase() === "FUTURES" || (targetGameId && targetGameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFuturesMarket ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db, isFuturesMarket ? "FUTURES" : marketType);
+  const gameId = targetGameId || tournament?.id || defaultGameId;
+  const isFutures = isFuturesMarket || (tournament?.tournament_type === "FUTURES") || gameId.toLowerCase().includes("futur");
+  const initialCap = tournament?.initial_capital || (isFutures ? 10000.0 : INITIAL_CAPITAL);
   const groups = Object.values(OFFICIAL_GROUPS);
   const leaderboard: LeaderboardEntry[] = [];
 
@@ -741,13 +763,12 @@ export async function getLeaderboard(db: D1Database, targetGameId?: string): Pro
     // Si la tabla no existe o falla la consulta, se mantiene el fallback por defecto
   }
 
-  const isFutures = (tournament?.tournament_type === "FUTURES") || gameId.toLowerCase().includes("futur");
   const rankingRule: "FUTURES" | "PORTFOLIO" = isFutures ? "FUTURES" : "PORTFOLIO";
 
   for (const group of groups) {
     const finalGroupName = customNamesMap[group.id] || group.name;
     try {
-      const data = await getMarkedPortfolio(db, group.id, gameId);
+      const data = await getMarkedPortfolio(db, group.id, gameId, isFutures ? "FUTURES" : "PORTFOLIO");
       const eq = data.portfolio.equity;
       const dd = Math.max(0, data.portfolio.max_drawdown_nominal ?? 0.0);
       const peak = data.portfolio.peak_equity ?? Math.max(initialCap, eq);
@@ -1010,7 +1031,7 @@ export async function joinTournament(db: D1Database, groupId: string, tournament
     .run();
 
   // Asegurar balance y portafolio en este torneo
-  const port = await ensurePortfolioSeed(db, groupId, tournamentId, tournament.initial_capital);
+  const port = await ensurePortfolioSeed(db, groupId, tournamentId, tournament.initial_capital, tournament.tournament_type || (tournament.id.includes("futur") ? "FUTURES" : "PORTFOLIO"));
 
   return {
     success: true,

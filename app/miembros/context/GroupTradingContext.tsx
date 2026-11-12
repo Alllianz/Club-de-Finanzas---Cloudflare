@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import {
   GroupAuthSession,
   GroupPortfolio,
@@ -90,6 +90,12 @@ export const GroupTradingProvider: React.FC<{
   const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isTabVisible, setIsTabVisible] = useState<boolean>(true);
+  const [isTournamentReady, setIsTournamentReady] = useState<boolean>(false);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const requestSeqRef = useRef<number>(0);
+  const tournamentAbortRef = useRef<AbortController | null>(null);
+  const tournamentPromiseRef = useRef<Promise<void> | null>(null);
 
   // Page Visibility API: Detecta cuando el usuario cambia de pestaña para pausar polling
   useEffect(() => {
@@ -107,40 +113,94 @@ export const GroupTradingProvider: React.FC<{
     };
   }, []);
 
+  // Reiniciar estado y abortar peticiones pendientes al cambiar de marketType para evitar mezcla de datos
+  useEffect(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    if (tournamentAbortRef.current) {
+      tournamentAbortRef.current.abort();
+    }
+    requestSeqRef.current++;
+
+    setPortfolio(null);
+    setPositions([]);
+    setPendingOrders([]);
+    setTrades([]);
+    setLeaderboard([]);
+    setTournament(null);
+    setAvailableTournaments([]);
+    setIsTournamentReady(false);
+    setErrorMessage(null);
+
+    try {
+      const savedTourId = localStorage.getItem(`club_finanzas_selected_tournament_id_${marketType}`);
+      setSelectedTournamentId(savedTourId || null);
+    } catch {
+      setSelectedTournamentId(null);
+    }
+  }, [marketType]);
+
+  // Limpieza al desmontar
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+      tournamentAbortRef.current?.abort();
+    };
+  }, []);
+
   // Consulta y sincronización del torneo activo y lista de torneos disponibles por mercado
   const refreshTournament = useCallback(async () => {
-    try {
-      const gid = currentGroup?.id;
-      const [data, allTours] = await Promise.all([
-        fetchActiveTournament(marketType),
-        fetchTournamentsList(gid, marketType),
-      ]);
-
-      if (allTours && allTours.length > 0) {
-        setAvailableTournaments(allTours);
-      } else {
-        setAvailableTournaments([]);
-      }
-
-      if (data) {
-        setTournament((prev) => {
-          if (selectedTournamentId && allTours) {
-            const currentSelected = allTours.find((t) => t.id === selectedTournamentId);
-            if (currentSelected) return currentSelected;
-          }
-          return data;
-        });
-
-        setSelectedTournamentId((prev) => {
-          if (prev && allTours && allTours.some((t) => t.id === prev)) {
-            return prev;
-          }
-          return data.id;
-        });
-      }
-    } catch {
-      // Ignorar fallos de red silenciosos en background
+    if (tournamentAbortRef.current) {
+      tournamentAbortRef.current.abort();
     }
+    const controller = new AbortController();
+    tournamentAbortRef.current = controller;
+
+    const run = async () => {
+      try {
+        const gid = currentGroup?.id;
+        const [data, allTours] = await Promise.all([
+          fetchActiveTournament(marketType, controller.signal),
+          fetchTournamentsList(gid, marketType, controller.signal),
+        ]);
+
+        if (controller.signal.aborted) return;
+
+        if (allTours && allTours.length > 0) {
+          setAvailableTournaments(allTours);
+        } else {
+          setAvailableTournaments([]);
+        }
+
+        if (data) {
+          setTournament((prev) => {
+            if (selectedTournamentId && allTours) {
+              const currentSelected = allTours.find((t) => t.id === selectedTournamentId);
+              if (currentSelected) return currentSelected;
+            }
+            return data;
+          });
+
+          setSelectedTournamentId((prev) => {
+            if (prev && allTours && allTours.some((t) => t.id === prev)) {
+              return prev;
+            }
+            return data.id;
+          });
+        }
+      } catch {
+        // Silencioso
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsTournamentReady(true);
+        }
+      }
+    };
+
+    const p = run();
+    tournamentPromiseRef.current = p;
+    return p;
   }, [currentGroup?.id, selectedTournamentId, marketType]);
 
   // Restaurar sesión de grupo persistida y torneo seleccionado en localStorage
@@ -163,7 +223,7 @@ export const GroupTradingProvider: React.FC<{
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [TOURNAMENT_STORAGE_KEY]);
 
   useEffect(() => {
     refreshTournament();
@@ -172,17 +232,37 @@ export const GroupTradingProvider: React.FC<{
   // Cargar datos de portafolio, trades, leaderboard y torneo según el torneo seleccionado
   const refreshTradingData = useCallback(async () => {
     if (!currentGroup) return;
+
+    if (!isTournamentReady) {
+      if (tournamentPromiseRef.current) {
+        await tournamentPromiseRef.current;
+      } else {
+        await refreshTournament();
+      }
+    }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const currentSeq = ++requestSeqRef.current;
+
     try {
       setErrorMessage(null);
       const targetGameId = selectedTournamentId || tournament?.id || undefined;
 
       const [portData, tradesData, ordersData, lbData, allTours] = await Promise.allSettled([
-        fetchPortfolio(currentGroup.id, targetGameId),
-        fetchTradesHistory(currentGroup.id, targetGameId),
-        fetchPendingOrders(currentGroup.id, targetGameId),
-        fetchLeaderboardApi(targetGameId),
-        fetchTournamentsList(currentGroup.id, marketType),
+        fetchPortfolio(currentGroup.id, targetGameId, marketType, controller.signal),
+        fetchTradesHistory(currentGroup.id, targetGameId, marketType, controller.signal),
+        fetchPendingOrders(currentGroup.id, targetGameId, marketType, controller.signal),
+        fetchLeaderboardApi(targetGameId, marketType, controller.signal),
+        fetchTournamentsList(currentGroup.id, marketType, controller.signal),
       ]);
+
+      if (controller.signal.aborted || currentSeq !== requestSeqRef.current) {
+        return;
+      }
 
       if (portData.status === "fulfilled") {
         setPortfolio(portData.value.portfolio);
@@ -225,14 +305,17 @@ export const GroupTradingProvider: React.FC<{
         }
       }
     } catch (err) {
+      if (controller.signal.aborted || currentSeq !== requestSeqRef.current) {
+        return;
+      }
       setErrorMessage(err instanceof Error ? err.message : "Error al actualizar datos.");
     }
-  }, [currentGroup, selectedTournamentId, tournament?.id]);
+  }, [currentGroup, selectedTournamentId, tournament?.id, marketType, isTournamentReady, refreshTournament]);
 
   // Actualización periódica en segundo plano optimizada a 20 segundos
-  // Se suspende inmediatamente si la pestaña está oculta (document.hidden) o si pollingEnabled es false
+  // Se suspende inmediatamente si la pestaña está oculta (document.hidden) o si pollingEnabled es false o si el torneo aún no está listo
   useEffect(() => {
-    if (currentGroup && pollingEnabled && isTabVisible) {
+    if (currentGroup && pollingEnabled && isTabVisible && isTournamentReady) {
       refreshTradingData();
       const interval = setInterval(() => {
         if (!document.hidden) {
@@ -241,7 +324,7 @@ export const GroupTradingProvider: React.FC<{
       }, 20000);
       return () => clearInterval(interval);
     }
-  }, [currentGroup, pollingEnabled, isTabVisible, refreshTradingData]);
+  }, [currentGroup, pollingEnabled, isTabVisible, isTournamentReady, refreshTradingData]);
 
   const selectTournament = (tournamentId: string) => {
     setSelectedTournamentId(tournamentId);
@@ -295,11 +378,22 @@ export const GroupTradingProvider: React.FC<{
   };
 
   const logout = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    if (tournamentAbortRef.current) {
+      tournamentAbortRef.current.abort();
+    }
+    requestSeqRef.current++;
     setCurrentGroup(null);
     setPortfolio(null);
     setPositions([]);
     setPendingOrders([]);
     setTrades([]);
+    setLeaderboard([]);
+    setTournament(null);
+    setAvailableTournaments([]);
+    setIsTournamentReady(false);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(TOURNAMENT_STORAGE_KEY);
   };
@@ -379,6 +473,7 @@ export const GroupTradingProvider: React.FC<{
         leverage,
         marginMode,
         gameId: targetGameId,
+        marketType,
       });
       await refreshTradingData();
       setIsActionLoading(false);
@@ -397,7 +492,7 @@ export const GroupTradingProvider: React.FC<{
     setErrorMessage(null);
     try {
       const targetGameId = selectedTournamentId || tournament?.id || undefined;
-      const res = await cancelOrderApi(currentGroup.id, orderId, targetGameId);
+      const res = await cancelOrderApi(currentGroup.id, orderId, targetGameId, marketType);
       await refreshTradingData();
       setIsActionLoading(false);
       return res;
@@ -415,7 +510,7 @@ export const GroupTradingProvider: React.FC<{
     setErrorMessage(null);
     try {
       const targetGameId = selectedTournamentId || tournament?.id || undefined;
-      await closePositionApi(currentGroup.id, positionId, targetGameId, quantity);
+      await closePositionApi(currentGroup.id, positionId, targetGameId, quantity, marketType);
       await refreshTradingData();
       setIsActionLoading(false);
       return { success: true };
@@ -440,6 +535,7 @@ export const GroupTradingProvider: React.FC<{
         ...params,
         creatorId: "allianz",
         tournamentType: params.tournamentType || marketType,
+        marketType: params.marketType || marketType,
       });
       if (!res.success) {
         setIsActionLoading(false);

@@ -8,6 +8,7 @@ import {
   getActiveTournament,
   getTournamentById,
   DEFAULT_GAME_ID,
+  DEFAULT_FUTURES_GAME_ID,
   INITIAL_CAPITAL,
 } from "./paper-engine";
 import { OFFICIAL_GROUPS } from "./group-auth";
@@ -144,7 +145,8 @@ export async function getDailySnapshotsForGroup(
 export async function processDailyMarketCloseSnapshot(
   db: D1Database,
   customDateStr?: string,
-  targetGameId?: string
+  targetGameId?: string,
+  marketType?: string
 ): Promise<{
   success: boolean;
   snapshotDate: string;
@@ -156,9 +158,11 @@ export async function processDailyMarketCloseSnapshot(
   const snapshotDate = customDateStr || getSnapshotDateString();
   const nowMs = Date.now();
 
-  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
-  const gameId = targetGameId || tournament?.id || DEFAULT_GAME_ID;
-  const initialCap = tournament?.initial_capital || INITIAL_CAPITAL;
+  const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (targetGameId && targetGameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db, isFutures ? "FUTURES" : marketType);
+  const gameId = targetGameId || tournament?.id || defaultGameId;
+  const initialCap = tournament?.initial_capital || (isFutures ? 10000.0 : INITIAL_CAPITAL);
 
   const groups = Object.values(OFFICIAL_GROUPS);
   const createdSnapshots: DailySnapshotRecord[] = [];
@@ -169,7 +173,7 @@ export async function processDailyMarketCloseSnapshot(
   for (const grp of groups) {
     try {
       // 1. Obtener datos de portafolio y posiciones actuales
-      const port = await ensurePortfolioSeed(db, grp.id, gameId, initialCap);
+      const port = await ensurePortfolioSeed(db, grp.id, gameId, initialCap, isFutures ? "FUTURES" : marketType);
       const posRes = await db
         .prepare("SELECT * FROM paper_positions WHERE game_id = ? AND user_id = ?")
         .bind(gameId, grp.id)

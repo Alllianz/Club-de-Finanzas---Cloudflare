@@ -18,6 +18,7 @@ import {
   saveTournament,
   deleteTournament,
   DEFAULT_GAME_ID,
+  DEFAULT_FUTURES_GAME_ID,
 } from "./paper-engine";
 import {
   createPaperOrder,
@@ -44,15 +45,15 @@ const corsHeaders = {
 
 // Throttle en memoria por grupo/torneo para evitar ráfagas duplicadas de matchPendingOrders
 const lastMatchRuns = new Map<string, number>();
-async function throttledMatchPendingOrders(db: any, groupId: string, targetGameId?: string) {
-  const key = `${groupId}:${targetGameId || "default"}`;
+async function throttledMatchPendingOrders(db: any, groupId: string, targetGameId?: string, marketType?: string) {
+  const key = `${groupId}:${targetGameId || "default"}:${marketType || "default"}`;
   const now = Date.now();
   const last = lastMatchRuns.get(key) || 0;
   if (now - last < 5000) {
     return;
   }
   lastMatchRuns.set(key, now);
-  await matchPendingOrders(db, groupId, targetGameId);
+  await matchPendingOrders(db, groupId, targetGameId, marketType);
 }
 
 export default {
@@ -265,10 +266,11 @@ export default {
         }
 
         const targetGameId = url.searchParams.get("gameId")?.trim() || undefined;
+        const marketType = url.searchParams.get("marketType")?.trim() || undefined;
         // Emparejar órdenes límite pendientes contra cotizaciones spot en tiempo real (Zero Look-Ahead Bias)
-        await throttledMatchPendingOrders(env.DB, groupId, targetGameId);
+        await throttledMatchPendingOrders(env.DB, groupId, targetGameId, marketType);
 
-        const result = await getMarkedPortfolio(env.DB, groupId, targetGameId);
+        const result = await getMarkedPortfolio(env.DB, groupId, targetGameId, marketType);
         return new Response(
           JSON.stringify({ success: true, data: result }),
           { status: 200, headers: corsHeaders }
@@ -299,6 +301,7 @@ export default {
         const body = (await request.json().catch(() => ({}))) as {
           groupId?: string;
           gameId?: string;
+          marketType?: string;
           symbol?: string;
           orderSide?: "BUY" | "SELL";
           positionSide?: "LONG" | "SHORT";
@@ -327,6 +330,7 @@ export default {
           leverage: body.leverage,
           marginMode: body.marginMode,
           gameId: body.gameId?.trim() || undefined,
+          marketType: body.marketType?.trim() || undefined,
         });
 
         return new Response(
@@ -365,10 +369,11 @@ export default {
         }
 
         const targetGameId = url.searchParams.get("gameId")?.trim() || undefined;
+        const marketType = url.searchParams.get("marketType")?.trim() || undefined;
         // Emparejar órdenes límite pendientes (con throttle anti-ráfaga)
-        await throttledMatchPendingOrders(env.DB, groupId, targetGameId);
+        await throttledMatchPendingOrders(env.DB, groupId, targetGameId, marketType);
 
-        const orders = await getPaperOrders(env.DB, groupId, targetGameId);
+        const orders = await getPaperOrders(env.DB, groupId, targetGameId, undefined, marketType);
         return new Response(
           JSON.stringify({ success: true, data: orders }),
           { status: 200, headers: corsHeaders }
@@ -400,6 +405,7 @@ export default {
           groupId?: string;
           orderId?: string;
           gameId?: string;
+          marketType?: string;
         };
 
         const groupId = body.groupId?.trim();
@@ -412,7 +418,8 @@ export default {
         }
 
         const targetGameId = body.gameId?.trim() || undefined;
-        const cancelResult = await cancelPaperOrder(env.DB, groupId, orderId, targetGameId);
+        const marketType = body.marketType?.trim() || undefined;
+        const cancelResult = await cancelPaperOrder(env.DB, groupId, orderId, targetGameId, marketType);
         return new Response(
           JSON.stringify({ success: true, data: cancelResult }),
           { status: 200, headers: corsHeaders }
@@ -444,6 +451,7 @@ export default {
           groupId?: string;
           positionId?: string;
           gameId?: string;
+          marketType?: string;
           quantity?: number;
         };
 
@@ -457,8 +465,9 @@ export default {
         }
 
         const targetGameId = body.gameId?.trim() || undefined;
+        const marketType = body.marketType?.trim() || undefined;
         const closeQty = body.quantity ? Number(body.quantity) : undefined;
-        const closeResult = await closePosition(env.DB, groupId, positionId, targetGameId, closeQty);
+        const closeResult = await closePosition(env.DB, groupId, positionId, targetGameId, closeQty, marketType);
         return new Response(
           JSON.stringify({ success: true, data: closeResult }),
           { status: 200, headers: corsHeaders }
@@ -495,7 +504,8 @@ export default {
         }
 
         const targetGameId = url.searchParams.get("gameId")?.trim() || undefined;
-        const trades = await getTradesHistory(env.DB, groupId, targetGameId);
+        const marketType = url.searchParams.get("marketType")?.trim() || undefined;
+        const trades = await getTradesHistory(env.DB, groupId, targetGameId, marketType);
         return new Response(
           JSON.stringify({ success: true, data: trades }),
           { status: 200, headers: corsHeaders }
@@ -524,7 +534,8 @@ export default {
         }
 
         const targetGameId = url.searchParams.get("gameId")?.trim() || undefined;
-        const leaderboard = await getLeaderboard(env.DB, targetGameId);
+        const marketType = url.searchParams.get("marketType")?.trim() || undefined;
+        const leaderboard = await getLeaderboard(env.DB, targetGameId, marketType);
         return new Response(
           JSON.stringify({ success: true, data: leaderboard }),
           { status: 200, headers: corsHeaders }
@@ -551,7 +562,9 @@ export default {
             { status: 503, headers: corsHeaders }
           );
         }
-        const gameId = url.searchParams.get("gameId")?.trim() || DEFAULT_GAME_ID;
+        const marketType = url.searchParams.get("marketType")?.trim() || undefined;
+        const defaultGameId = (marketType || "").toUpperCase() === "FUTURES" ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+        const gameId = url.searchParams.get("gameId")?.trim() || defaultGameId;
         const groupId = url.searchParams.get("groupId")?.trim();
         if (!groupId) {
           return new Response(
@@ -583,8 +596,12 @@ export default {
             { status: 503, headers: corsHeaders }
           );
         }
-        const body = (await request.json().catch(() => ({}))) as { date?: string; gameId?: string };
-        const result = await processDailyMarketCloseSnapshot(env.DB, body.date, body.gameId);
+        const body = (await request.json().catch(() => ({}))) as {
+          date?: string;
+          gameId?: string;
+          marketType?: string;
+        };
+        const result = await processDailyMarketCloseSnapshot(env.DB, body.date, body.gameId, body.marketType);
         return new Response(
           JSON.stringify({ success: true, ...result }),
           { status: 200, headers: corsHeaders }
@@ -1226,7 +1243,8 @@ export default {
     if (env.DB) {
       await matchPendingOrders(env.DB);
       try {
-        await processDailyMarketCloseSnapshot(env.DB);
+        await processDailyMarketCloseSnapshot(env.DB, undefined, undefined, "PORTFOLIO");
+        await processDailyMarketCloseSnapshot(env.DB, undefined, undefined, "FUTURES");
       } catch (snpErr) {
         console.warn("[Worker Scheduled] Error al computar daily snapshot:", snpErr);
       }

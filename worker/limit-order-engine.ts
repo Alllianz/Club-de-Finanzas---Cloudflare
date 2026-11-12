@@ -20,6 +20,7 @@ import {
   calculateLiquidationPrice,
   ensurePortfolioSeed,
   DEFAULT_GAME_ID,
+  DEFAULT_FUTURES_GAME_ID,
   INITIAL_CAPITAL,
   MAX_LEVERAGE,
 } from "./paper-engine";
@@ -364,6 +365,7 @@ export interface CreatePaperOrderInput {
   leverage?: number;
   marginMode?: "ISOLATED" | "CROSS";
   gameId?: string;
+  marketType?: string;
 }
 
 /**
@@ -460,9 +462,11 @@ export async function createPaperOrder(
     throw new Error("Para una orden límite se requiere especificar un precio límite válido mayor a 0.");
   }
 
-  const tournament = input.gameId ? await getTournamentById(db, input.gameId) : await getActiveTournament(db);
-  const gameId = tournament?.id || input.gameId || DEFAULT_GAME_ID;
-  const initialCap = tournament?.initial_capital || INITIAL_CAPITAL;
+  const isFutures = (input.marketType || "").toUpperCase() === "FUTURES" || (input.gameId && input.gameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = input.gameId ? await getTournamentById(db, input.gameId) : await getActiveTournament(db, isFutures ? "FUTURES" : input.marketType);
+  const gameId = tournament?.id || input.gameId || defaultGameId;
+  const initialCap = tournament?.initial_capital || (isFutures ? 10000.0 : INITIAL_CAPITAL);
   const maxAllowedLeverage = tournament?.max_leverage || MAX_LEVERAGE;
   const isSoloLong = tournament ? !tournament.allow_short : false;
 
@@ -881,11 +885,14 @@ export async function getPaperOrders(
   db: D1Database,
   groupId: string,
   targetGameId?: string,
-  statusFilter?: string
+  statusFilter?: string,
+  marketType?: string
 ): Promise<OrderRecord[]> {
   await ensurePaperOrdersTable(db);
-  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
-  const gameId = tournament?.id || targetGameId || DEFAULT_GAME_ID;
+  const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (targetGameId && targetGameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db, isFutures ? "FUTURES" : marketType);
+  const gameId = tournament?.id || targetGameId || defaultGameId;
 
   let query = "SELECT * FROM paper_orders WHERE game_id = ? AND user_id = ?";
   const params: unknown[] = [gameId, groupId];
@@ -908,11 +915,14 @@ export async function cancelPaperOrder(
   db: D1Database,
   groupId: string,
   orderId: string,
-  targetGameId?: string
+  targetGameId?: string,
+  marketType?: string
 ): Promise<{ success: boolean; message: string }> {
   await ensurePaperOrdersTable(db);
-  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
-  const gameId = tournament?.id || targetGameId || DEFAULT_GAME_ID;
+  const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (targetGameId && targetGameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db, isFutures ? "FUTURES" : marketType);
+  const gameId = tournament?.id || targetGameId || defaultGameId;
 
   const order = await db
     .prepare("SELECT * FROM paper_orders WHERE id = ? AND game_id = ? AND user_id = ?")
@@ -946,10 +956,13 @@ export async function cancelPaperOrder(
 export async function matchPendingOrders(
   db: D1Database,
   groupId?: string,
-  targetGameId?: string
+  targetGameId?: string,
+  marketType?: string
 ): Promise<{ matchedCount: number; ordersFilled: string[] }> {
   await ensurePaperOrdersTable(db);
-  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db);
+  const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (targetGameId && targetGameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db, isFutures ? "FUTURES" : marketType);
 
   // Si se especificó un targetGameId y el torneo no está en período activo, no se procesa
   if (targetGameId) {
@@ -964,6 +977,10 @@ export async function matchPendingOrders(
   if (targetGameId) {
     query += " AND game_id = ?";
     params.push(targetGameId);
+  } else if (marketType) {
+    const effectiveGameId = tournament?.id || defaultGameId;
+    query += " AND game_id = ?";
+    params.push(effectiveGameId);
   }
   if (groupId) {
     query += " AND user_id = ?";
