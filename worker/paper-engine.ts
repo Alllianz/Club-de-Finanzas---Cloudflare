@@ -58,6 +58,52 @@ export function calculateLiquidationPrice(
 }
 
 /**
+ * Valida los límites de Take Profit y Stop Loss según el lado de la posición
+ * LONG: TP > price, SL < price
+ * SHORT: TP < price, SL > price
+ */
+export function validateTpSlBounds(
+  effectivePrice: number,
+  positionSide: "LONG" | "SHORT",
+  takeProfit?: number | null,
+  stopLoss?: number | null
+): void {
+  if (takeProfit !== undefined && takeProfit !== null && !isNaN(Number(takeProfit))) {
+    const tp = Number(takeProfit);
+    if (tp <= 0) {
+      throw new Error("El precio de Take Profit debe ser mayor a 0.");
+    }
+    if (positionSide === "LONG" && tp <= effectivePrice) {
+      throw new Error(
+        `Para una posición LONG, el Take Profit ($${tp.toFixed(2)}) debe ser estrictamente superior al precio de ejecución ($${effectivePrice.toFixed(2)}).`
+      );
+    }
+    if (positionSide === "SHORT" && tp >= effectivePrice) {
+      throw new Error(
+        `Para una posición SHORT, el Take Profit ($${tp.toFixed(2)}) debe ser estrictamente inferior al precio de ejecución ($${effectivePrice.toFixed(2)}).`
+      );
+    }
+  }
+
+  if (stopLoss !== undefined && stopLoss !== null && !isNaN(Number(stopLoss))) {
+    const sl = Number(stopLoss);
+    if (sl <= 0) {
+      throw new Error("El precio de Stop Loss debe ser mayor a 0.");
+    }
+    if (positionSide === "LONG" && sl >= effectivePrice) {
+      throw new Error(
+        `Para una posición LONG, el Stop Loss ($${sl.toFixed(2)}) debe ser estrictamente inferior al precio de ejecución ($${effectivePrice.toFixed(2)}).`
+      );
+    }
+    if (positionSide === "SHORT" && sl <= effectivePrice) {
+      throw new Error(
+        `Para una posición SHORT, el Stop Loss ($${sl.toFixed(2)}) debe ser estrictamente superior al precio de ejecución ($${effectivePrice.toFixed(2)}).`
+      );
+    }
+  }
+}
+
+/**
  * Asegura la existencia de la fila de portafolio para el grupo
  */
 export async function ensurePortfolioSeed(
@@ -472,6 +518,8 @@ export async function executeOrder(
     marginMode?: "ISOLATED" | "CROSS";
     gameId?: string;
     marketType?: string;
+    takeProfit?: number;
+    stopLoss?: number;
   }
 ) {
   const symbol = input.symbol.trim().toUpperCase();
@@ -480,6 +528,14 @@ export async function executeOrder(
   const quantity = Number(input.quantity);
   const leverage = Math.min(Math.max(1, Number(input.leverage) || 1), MAX_LEVERAGE);
   const marginMode: "ISOLATED" | "CROSS" = input.marginMode === "CROSS" ? "CROSS" : "ISOLATED";
+  const takeProfit =
+    input.takeProfit !== undefined && input.takeProfit !== null && !isNaN(Number(input.takeProfit))
+      ? Number(input.takeProfit)
+      : undefined;
+  const stopLoss =
+    input.stopLoss !== undefined && input.stopLoss !== null && !isNaN(Number(input.stopLoss))
+      ? Number(input.stopLoss)
+      : undefined;
 
   if (!symbol) throw new Error("El símbolo es requerido.");
   if (isNaN(quantity) || quantity <= 0) throw new Error("La cantidad debe ser mayor a 0.");
@@ -540,6 +596,9 @@ export async function executeOrder(
   const isAfterHours = quote.asset_type === "Stock" && !quote.is_market_open;
 
   const executedPrice = quote.price;
+  if (takeProfit !== undefined || stopLoss !== undefined) {
+    validateTpSlBounds(executedPrice, positionSide, takeProfit, stopLoss);
+  }
   const notional = executedPrice * quantity;
   const fee = computeOrderFee(quote.asset_type, quantity, notional);
   const initialMargin = notional / leverage;
@@ -636,8 +695,8 @@ export async function executeOrder(
       `INSERT INTO paper_positions (
          id, game_id, user_id, symbol, asset_type, side, quantity,
          entry_price, current_price, leverage, margin_mode, initial_margin,
-         unrealized_pnl, liquidation_price, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?)`
+         unrealized_pnl, liquidation_price, take_profit, stop_loss, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?, ?)`
     )
     .bind(
       positionId,
@@ -653,6 +712,8 @@ export async function executeOrder(
       marginMode,
       initialMargin,
       liquidationPrice,
+      takeProfit ?? null,
+      stopLoss ?? null,
       nowMs
     )
     .run();
@@ -806,6 +867,69 @@ export async function closePosition(
     netRealizedPnl,
     cashReturned,
     isFullClose,
+  };
+}
+
+/**
+ * Actualiza los niveles de Take Profit y Stop Loss de una posición abierta existente
+ */
+export async function updatePositionTpSl(
+  db: D1Database,
+  groupId: string,
+  positionId: string,
+  takeProfit?: number | null,
+  stopLoss?: number | null,
+  targetGameId?: string,
+  marketType?: string
+): Promise<{ success: boolean; position: PositionRecord }> {
+  const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (targetGameId && targetGameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db, isFutures ? "FUTURES" : marketType);
+  const gameId = tournament?.id || targetGameId || defaultGameId;
+
+  const dateCheck = checkTournamentDateRange(tournament);
+  if (!dateCheck.allowed) {
+    throw new Error(dateCheck.reason || "Operación rechazada: el torneo no se encuentra en período hábil para operar.");
+  }
+
+  const pos = await db
+    .prepare("SELECT * FROM paper_positions WHERE id = ? AND game_id = ? AND user_id = ?")
+    .bind(positionId, gameId, groupId)
+    .first<PositionRecord>();
+
+  if (!pos) {
+    throw new Error("Posición no encontrada o no pertenece a este grupo.");
+  }
+
+  const quote = await fetchLiveMarketQuote(pos.symbol);
+  const referencePrice = quote.price || pos.current_price || pos.entry_price;
+
+  const parsedTp = takeProfit !== undefined ? (takeProfit === null ? null : Number(takeProfit)) : (pos.take_profit ?? null);
+  const parsedSl = stopLoss !== undefined ? (stopLoss === null ? null : Number(stopLoss)) : (pos.stop_loss ?? null);
+
+  validateTpSlBounds(referencePrice, pos.side, parsedTp, parsedSl);
+
+  const nowMs = Date.now();
+  await db
+    .prepare(
+      `UPDATE paper_positions 
+       SET take_profit = ?, stop_loss = ?, current_price = ?, updated_at = ?
+       WHERE id = ?`
+    )
+    .bind(parsedTp, parsedSl, referencePrice, nowMs, pos.id)
+    .run();
+
+  const updatedPosition: PositionRecord = {
+    ...pos,
+    take_profit: parsedTp,
+    stop_loss: parsedSl,
+    current_price: referencePrice,
+    updated_at: nowMs,
+  };
+
+  return {
+    success: true,
+    position: updatedPosition,
   };
 }
 

@@ -2,13 +2,20 @@
 
 import React, { useState, useEffect } from "react";
 import { useGroupTrading } from "../context/GroupTradingContext";
+import { OpenPosition } from "../types/paper-trading";
 import { realtimePriceStream, RealtimePriceTick } from "../services/realtimePriceStream";
 import { checkTournamentDateRange } from "../utils/tournament-dates";
 
 export const PositionsTable: React.FC = () => {
-  const { positions, closePosition, isActionLoading, tournament } = useGroupTrading();
+  const { positions, closePosition, updatePositionTpSl, isActionLoading, tournament } = useGroupTrading();
   const [closingId, setClosingId] = useState<string | null>(null);
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
+
+  const [tpSlModalPos, setTpSlModalPos] = useState<OpenPosition | null>(null);
+  const [tpInput, setTpInput] = useState<string>("");
+  const [slInput, setSlInput] = useState<string>("");
+  const [tpSlError, setTpSlError] = useState<string | null>(null);
+  const [isSavingTpSl, setIsSavingTpSl] = useState<boolean>(false);
 
   const dateStatus = checkTournamentDateRange(tournament);
 
@@ -74,6 +81,83 @@ export const PositionsTable: React.FC = () => {
     setClosingId(null);
   };
 
+  const handleOpenTpSlModal = (pos: OpenPosition) => {
+    setTpSlModalPos(pos);
+    setTpInput(pos.take_profit ? String(pos.take_profit) : "");
+    setSlInput(pos.stop_loss ? String(pos.stop_loss) : "");
+    setTpSlError(null);
+  };
+
+  const handleCloseTpSlModal = () => {
+    setTpSlModalPos(null);
+    setTpInput("");
+    setSlInput("");
+    setTpSlError(null);
+  };
+
+  const handleSaveTpSl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tpSlModalPos) return;
+
+    const currentPrice = livePrices[tpSlModalPos.symbol] ?? tpSlModalPos.current_price ?? tpSlModalPos.entry_price;
+    const tpNum = tpInput.trim() !== "" ? parseFloat(tpInput) : null;
+    const slNum = slInput.trim() !== "" ? parseFloat(slInput) : null;
+
+    if (tpInput.trim() !== "" && (tpNum === null || isNaN(tpNum) || tpNum <= 0)) {
+      setTpSlError("El precio de Take Profit debe ser un número válido mayor a 0.");
+      return;
+    }
+    if (slInput.trim() !== "" && (slNum === null || isNaN(slNum) || slNum <= 0)) {
+      setTpSlError("El precio de Stop Loss debe ser un número válido mayor a 0.");
+      return;
+    }
+
+    if (tpSlModalPos.side === "LONG") {
+      if (tpNum !== null && tpNum <= currentPrice) {
+        setTpSlError(`Para posición LONG, el Take Profit ($${tpNum.toFixed(2)}) debe ser mayor al precio actual ($${currentPrice.toFixed(2)}).`);
+        return;
+      }
+      if (slNum !== null && slNum >= currentPrice) {
+        setTpSlError(`Para posición LONG, el Stop Loss ($${slNum.toFixed(2)}) debe ser menor al precio actual ($${currentPrice.toFixed(2)}).`);
+        return;
+      }
+    } else {
+      if (tpNum !== null && tpNum >= currentPrice) {
+        setTpSlError(`Para posición SHORT, el Take Profit ($${tpNum.toFixed(2)}) debe ser menor al precio actual ($${currentPrice.toFixed(2)}).`);
+        return;
+      }
+      if (slNum !== null && slNum <= currentPrice) {
+        setTpSlError(`Para posición SHORT, el Stop Loss ($${slNum.toFixed(2)}) debe ser mayor al precio actual ($${currentPrice.toFixed(2)}).`);
+        return;
+      }
+    }
+
+    setIsSavingTpSl(true);
+    setTpSlError(null);
+    const res = await updatePositionTpSl(tpSlModalPos.id, tpNum, slNum);
+    setIsSavingTpSl(false);
+
+    if (res.success) {
+      handleCloseTpSlModal();
+    } else {
+      setTpSlError(res.error || "Error al actualizar TP/SL.");
+    }
+  };
+
+  const handleClearTpSl = async () => {
+    if (!tpSlModalPos) return;
+    setIsSavingTpSl(true);
+    setTpSlError(null);
+    const res = await updatePositionTpSl(tpSlModalPos.id, null, null);
+    setIsSavingTpSl(false);
+
+    if (res.success) {
+      handleCloseTpSlModal();
+    } else {
+      setTpSlError(res.error || "Error al eliminar TP/SL.");
+    }
+  };
+
   return (
     <div className="rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-sm">
       <div className="flex items-center justify-between border-b border-[#f1f5f9] pb-4">
@@ -107,6 +191,7 @@ export const PositionsTable: React.FC = () => {
                 <th className="py-3 px-3">Cantidad</th>
                 <th className="py-3 px-3">Precio Entrada</th>
                 <th className="py-3 px-3">Precio Actual</th>
+                <th className="py-3 px-3">TP / SL</th>
                 <th className="py-3 px-3">Liq. Estimada</th>
                 <th className="py-3 px-3">Margen</th>
                 <th className="py-3 px-3 text-right">PnL Flotante</th>
@@ -174,6 +259,26 @@ export const PositionsTable: React.FC = () => {
                         )}
                       </div>
                     </td>
+                    <td className="py-3.5 px-3 font-mono">
+                      {pos.take_profit || pos.stop_loss ? (
+                        <div className="flex flex-col gap-0.5">
+                          {pos.take_profit ? (
+                            <span className="text-emerald-600 font-bold text-[11px] flex items-center gap-1">
+                              <span className="text-[9px] uppercase px-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-700">TP</span>
+                              ${pos.take_profit.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          ) : null}
+                          {pos.stop_loss ? (
+                            <span className="text-rose-600 font-bold text-[11px] flex items-center gap-1">
+                              <span className="text-[9px] uppercase px-1 rounded bg-rose-50 border border-rose-200 text-rose-700">SL</span>
+                              ${pos.stop_loss.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-[#94a3b8] font-bold">--</span>
+                      )}
+                    </td>
                     <td className="py-3.5 px-3 font-mono text-red-600">
                       {pos.liquidation_price > 0
                         ? `$${pos.liquidation_price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -202,6 +307,19 @@ export const PositionsTable: React.FC = () => {
                     </td>
                     <td className="py-3.5 px-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenTpSlModal(pos)}
+                          disabled={isActionLoading || closingId === pos.id || !dateStatus.allowed}
+                          title={!dateStatus.allowed ? dateStatus.reason : "Configurar / Editar Take Profit y Stop Loss"}
+                          className={`rounded border px-2 py-1 text-[11px] font-bold transition disabled:opacity-50 ${
+                            !dateStatus.allowed
+                              ? "border-slate-300 bg-slate-100 text-slate-500 cursor-not-allowed"
+                              : "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-600 hover:text-white"
+                          }`}
+                        >
+                          TP/SL
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleClose(pos.id, pos.symbol)}
@@ -239,6 +357,150 @@ export const PositionsTable: React.FC = () => {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Modal para Set / Edit / Clear TP & SL */}
+      {tpSlModalPos && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-[#e2e8f0] bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b border-[#f1f5f9] pb-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#1e3a8a]">
+                  Gestión de Riesgo
+                </span>
+                <h4 className="font-serif text-lg font-bold text-[#0b1727]">
+                  Configurar TP / SL ({tpSlModalPos.symbol})
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseTpSlModal}
+                disabled={isSavingTpSl}
+                className="text-gray-400 hover:text-gray-600 text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-2.5 text-xs grid grid-cols-3 gap-2 text-center">
+              <div>
+                <span className="block text-[10px] text-[#64748b]">Sentido</span>
+                <span className={`font-bold ${tpSlModalPos.side === "LONG" ? "text-emerald-700" : "text-red-700"}`}>
+                  {tpSlModalPos.side}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[10px] text-[#64748b]">Entrada</span>
+                <span className="font-mono font-bold text-[#0b1727]">
+                  ${tpSlModalPos.entry_price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[10px] text-[#64748b]">Precio Actual</span>
+                <span className="font-mono font-bold text-[#0b1727]">
+                  ${(livePrices[tpSlModalPos.symbol] ?? tpSlModalPos.current_price ?? tpSlModalPos.entry_price).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
+            {tpSlError && (
+              <div className="mt-3 rounded-md bg-red-50 border border-red-200 p-2.5 text-xs text-red-700">
+                {tpSlError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveTpSl} className="mt-4 space-y-3">
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+                    Take Profit (USD)
+                  </label>
+                  <span className="text-[10px] font-mono text-[#64748b]">
+                    {tpSlModalPos.side === "LONG" ? "> Precio Actual" : "< Precio Actual"}
+                  </span>
+                </div>
+                <div className="mt-1 relative">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-xs font-bold text-[#64748b]">$</span>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder="Dejar vacío para desactivar"
+                    value={tpInput}
+                    onChange={(e) => setTpInput(e.target.value)}
+                    className="w-full rounded-lg border border-[#cbd5e1] pl-7 pr-3 py-2 text-xs font-mono font-medium text-[#0b1727] focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-[#64748b]">
+                  {tpSlModalPos.side === "LONG"
+                    ? "Cierre automático al alcanzar este precio superior."
+                    : "Cierre automático al alcanzar este precio inferior."}
+                </p>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-wider text-rose-700">
+                    Stop Loss (USD)
+                  </label>
+                  <span className="text-[10px] font-mono text-[#64748b]">
+                    {tpSlModalPos.side === "LONG" ? "< Precio Actual" : "> Precio Actual"}
+                  </span>
+                </div>
+                <div className="mt-1 relative">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-xs font-bold text-[#64748b]">$</span>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder="Dejar vacío para desactivar"
+                    value={slInput}
+                    onChange={(e) => setSlInput(e.target.value)}
+                    className="w-full rounded-lg border border-[#cbd5e1] pl-7 pr-3 py-2 text-xs font-mono font-medium text-[#0b1727] focus:border-rose-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-[#64748b]">
+                  {tpSlModalPos.side === "LONG"
+                    ? "Corte de pérdidas automático si el precio cae a este nivel."
+                    : "Corte de pérdidas automático si el precio sube a este nivel."}
+                </p>
+              </div>
+
+              <div className="mt-4 flex items-center justify-between gap-2 pt-2 border-t border-[#f1f5f9]">
+                {tpSlModalPos.take_profit || tpSlModalPos.stop_loss ? (
+                  <button
+                    type="button"
+                    onClick={handleClearTpSl}
+                    disabled={isSavingTpSl}
+                    className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100 transition disabled:opacity-50"
+                  >
+                    {isSavingTpSl ? "Borrando..." : "Quitar TP / SL"}
+                  </button>
+                ) : (
+                  <span />
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCloseTpSlModal}
+                    disabled={isSavingTpSl}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingTpSl}
+                    className="rounded-lg bg-[#0b1727] px-4 py-2 text-xs font-bold text-white hover:bg-[#1e3a8a] transition disabled:opacity-50"
+                  >
+                    {isSavingTpSl ? "Guardando..." : "Guardar TP / SL"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

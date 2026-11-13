@@ -20,6 +20,7 @@ import {
   submitOrder,
   cancelOrderApi,
   closePositionApi,
+  updatePositionTpSlApi,
   fetchActiveTournament,
   fetchTournamentsList,
   joinTournamentApi,
@@ -60,10 +61,17 @@ interface GroupTradingContextType {
     leverage: number,
     marginModeOrOrderType?: "ISOLATED" | "CROSS" | "MARKET" | "LIMIT",
     orderTypeOrLimitPrice?: "MARKET" | "LIMIT" | number,
-    limitPriceOrMarginMode?: number | "ISOLATED" | "CROSS"
+    limitPriceOrMarginMode?: number | "ISOLATED" | "CROSS",
+    takeProfit?: number,
+    stopLoss?: number
   ) => Promise<{ success: boolean; message?: string; error?: string }>;
   cancelOrder: (orderId: string) => Promise<{ success: boolean; error?: string }>;
   closePosition: (positionId: string, quantity?: number) => Promise<{ success: boolean; error?: string }>;
+  updatePositionTpSl: (
+    positionId: string,
+    takeProfit?: number | null,
+    stopLoss?: number | null
+  ) => Promise<{ success: boolean; error?: string }>;
 }
 
 const GroupTradingContext = createContext<GroupTradingContextType | undefined>(undefined);
@@ -440,7 +448,9 @@ export const GroupTradingProvider: React.FC<{
     leverage: number,
     marginModeOrOrderType?: "ISOLATED" | "CROSS" | "MARKET" | "LIMIT",
     orderTypeOrLimitPrice?: "MARKET" | "LIMIT" | number,
-    limitPriceOrMarginMode?: number | "ISOLATED" | "CROSS"
+    limitPriceOrMarginMode?: number | "ISOLATED" | "CROSS",
+    takeProfit?: number,
+    stopLoss?: number
   ) => {
     if (!currentGroup) return { success: false, error: "No hay sesión de grupo activa." };
     setIsActionLoading(true);
@@ -482,6 +492,8 @@ export const GroupTradingProvider: React.FC<{
         limitPrice,
         leverage,
         marginMode,
+        takeProfit,
+        stopLoss,
         gameId: targetGameId,
         marketType,
       });
@@ -527,6 +539,35 @@ export const GroupTradingProvider: React.FC<{
     } catch (err) {
       setIsActionLoading(false);
       const msg = err instanceof Error ? err.message : "Error al cerrar la posición.";
+      setErrorMessage(msg);
+      return { success: false, error: msg };
+    }
+  };
+
+  const updatePositionTpSl = async (
+    positionId: string,
+    takeProfit?: number | null,
+    stopLoss?: number | null
+  ) => {
+    if (!currentGroup) return { success: false, error: "No hay sesión de grupo activa." };
+    setIsActionLoading(true);
+    setErrorMessage(null);
+    try {
+      const targetGameId = selectedTournamentId || tournament?.id || undefined;
+      await updatePositionTpSlApi(
+        currentGroup.id,
+        positionId,
+        takeProfit,
+        stopLoss,
+        targetGameId,
+        marketType
+      );
+      await refreshTradingData();
+      setIsActionLoading(false);
+      return { success: true };
+    } catch (err) {
+      setIsActionLoading(false);
+      const msg = err instanceof Error ? err.message : "Error al actualizar TP/SL de la posición.";
       setErrorMessage(msg);
       return { success: false, error: msg };
     }
@@ -619,6 +660,7 @@ export const GroupTradingProvider: React.FC<{
         placeOrder,
         cancelOrder,
         closePosition,
+        updatePositionTpSl,
       }}
     >
       {children}

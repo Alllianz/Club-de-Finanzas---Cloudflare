@@ -76,6 +76,8 @@ export interface PositionRecord {
   initial_margin: number;
   unrealized_pnl: number;
   liquidation_price: number;
+  take_profit?: number | null;
+  stop_loss?: number | null;
   updated_at: number;
 }
 
@@ -116,6 +118,8 @@ export interface OrderRecord {
   quantity: number;
   filled_quantity: number;
   limit_price: number | null;
+  take_profit?: number | null;
+  stop_loss?: number | null;
   leverage: number;
   margin_mode: "ISOLATED" | "CROSS";
   status: OrderStatus;

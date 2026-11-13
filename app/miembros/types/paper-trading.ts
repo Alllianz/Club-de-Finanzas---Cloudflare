@@ -58,6 +58,8 @@ export interface OpenPosition {
   initial_margin: number;
   unrealized_pnl: number;
   liquidation_price: number;
+  take_profit?: number | null;
+  stop_loss?: number | null;
   updated_at: number;
 }
 
@@ -100,6 +102,8 @@ export interface PendingOrder {
   limit_price: number | null;
   leverage: number;
   margin_mode: "ISOLATED" | "CROSS";
+  take_profit?: number | null;
+  stop_loss?: number | null;
   status: OrderStatus;
   created_at: number;
   filled_at?: number | null;

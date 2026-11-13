@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS paper_positions (
     initial_margin REAL NOT NULL,
     unrealized_pnl REAL NOT NULL,
     liquidation_price REAL NOT NULL,
+    take_profit REAL DEFAULT NULL,
+    stop_loss REAL DEFAULT NULL,
     updated_at INTEGER NOT NULL
 );
 
@@ -82,6 +84,8 @@ CREATE TABLE IF NOT EXISTS paper_orders (
     quantity REAL NOT NULL,
     filled_quantity REAL DEFAULT 0,
     limit_price REAL,
+    take_profit REAL DEFAULT NULL,
+    stop_loss REAL DEFAULT NULL,
     leverage REAL NOT NULL DEFAULT 1,
     margin_mode TEXT DEFAULT 'ISOLATED',
     status TEXT NOT NULL DEFAULT 'PENDING',

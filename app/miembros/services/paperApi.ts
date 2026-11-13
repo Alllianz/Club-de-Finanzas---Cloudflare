@@ -106,6 +106,8 @@ export async function submitOrder(payload: {
   limitPrice?: number;
   leverage: number;
   marginMode?: "ISOLATED" | "CROSS";
+  takeProfit?: number;
+  stopLoss?: number;
   gameId?: string;
   marketType?: string;
 }) {
@@ -181,6 +183,26 @@ export async function closePositionApi(
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || "Error al cerrar la posición.");
+  }
+  return data.data;
+}
+
+export async function updatePositionTpSlApi(
+  groupId: string,
+  positionId: string,
+  takeProfit?: number | null,
+  stopLoss?: number | null,
+  gameId?: string,
+  marketType?: string
+) {
+  const res = await fetch(`${API_BASE}/api/paper/positions/tpsl`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ groupId, positionId, takeProfit, stopLoss, gameId, marketType }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || "Error al actualizar TP/SL de la posición.");
   }
   return data.data;
 }

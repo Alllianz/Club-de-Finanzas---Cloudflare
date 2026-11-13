@@ -18,6 +18,7 @@ import {
   checkWeeklyTradeLimit,
   computeOrderFee,
   calculateLiquidationPrice,
+  validateTpSlBounds,
   ensurePortfolioSeed,
   computeCrossUnrealizedPnl,
   DEFAULT_GAME_ID,
@@ -50,6 +51,8 @@ export async function ensurePaperOrdersTable(db: D1Database): Promise<void> {
           quantity REAL NOT NULL,
           filled_quantity REAL DEFAULT 0,
           limit_price REAL,
+          take_profit REAL DEFAULT NULL,
+          stop_loss REAL DEFAULT NULL,
           leverage REAL NOT NULL DEFAULT 1,
           margin_mode TEXT DEFAULT 'ISOLATED',
           status TEXT NOT NULL DEFAULT 'PENDING',
@@ -68,6 +71,19 @@ export async function ensurePaperOrdersTable(db: D1Database): Promise<void> {
   } catch {
     // Si la tabla o índice ya existen, continuar
   }
+
+  try {
+    await db.prepare("ALTER TABLE paper_orders ADD COLUMN take_profit REAL DEFAULT NULL").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE paper_orders ADD COLUMN stop_loss REAL DEFAULT NULL").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE paper_positions ADD COLUMN take_profit REAL DEFAULT NULL").run();
+  } catch {}
+  try {
+    await db.prepare("ALTER TABLE paper_positions ADD COLUMN stop_loss REAL DEFAULT NULL").run();
+  } catch {}
 }
 
 /**
@@ -233,7 +249,9 @@ export async function executeOpenPositionOperation(
   leverage: number,
   marginMode: "ISOLATED" | "CROSS",
   initialCap: number,
-  nowMs: number
+  nowMs: number,
+  takeProfit?: number | null,
+  stopLoss?: number | null
 ) {
   const notional = executedPrice * quantity;
   const fee = computeOrderFee(assetType, quantity, notional);
@@ -334,13 +352,16 @@ export async function executeOpenPositionOperation(
     const totalMargin = existingPos.initial_margin + initialMargin;
     const newLiqPrice = calculateLiquidationPrice(weightedEntryPrice, leverage, positionSide);
 
+    const updatedTp = takeProfit !== undefined ? takeProfit : (existingPos.take_profit ?? null);
+    const updatedSl = stopLoss !== undefined ? stopLoss : (existingPos.stop_loss ?? null);
+
     await db
       .prepare(
         `UPDATE paper_positions
-         SET quantity = ?, entry_price = ?, current_price = ?, initial_margin = ?, liquidation_price = ?, updated_at = ?
+         SET quantity = ?, entry_price = ?, current_price = ?, initial_margin = ?, liquidation_price = ?, take_profit = ?, stop_loss = ?, updated_at = ?
          WHERE id = ?`
       )
-      .bind(totalQty, weightedEntryPrice, executedPrice, totalMargin, newLiqPrice, nowMs, existingPos.id)
+      .bind(totalQty, weightedEntryPrice, executedPrice, totalMargin, newLiqPrice, updatedTp, updatedSl, nowMs, existingPos.id)
       .run();
   } else {
     await db
@@ -348,8 +369,8 @@ export async function executeOpenPositionOperation(
         `INSERT INTO paper_positions (
            id, game_id, user_id, symbol, asset_type, side, quantity,
            entry_price, current_price, leverage, margin_mode, initial_margin,
-           unrealized_pnl, liquidation_price, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?)`
+           unrealized_pnl, liquidation_price, take_profit, stop_loss, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?, ?)`
       )
       .bind(
         positionId,
@@ -365,6 +386,8 @@ export async function executeOpenPositionOperation(
         marginMode,
         initialMargin,
         liquidationPrice,
+        takeProfit ?? null,
+        stopLoss ?? null,
         nowMs
       )
       .run();
@@ -387,6 +410,8 @@ export interface CreatePaperOrderInput {
   orderType?: "MARKET" | "LIMIT";
   quantity: number;
   limitPrice?: number;
+  takeProfit?: number;
+  stopLoss?: number;
   leverage?: number;
   marginMode?: "ISOLATED" | "CROSS";
   gameId?: string;
@@ -484,6 +509,14 @@ export async function createPaperOrder(
   const quantity = Number(input.quantity);
   const orderType: "MARKET" | "LIMIT" = input.orderType === "LIMIT" ? "LIMIT" : "MARKET";
   const limitPrice = input.limitPrice ? Number(input.limitPrice) : undefined;
+  const takeProfit =
+    input.takeProfit !== undefined && input.takeProfit !== null && !isNaN(Number(input.takeProfit))
+      ? Number(input.takeProfit)
+      : undefined;
+  const stopLoss =
+    input.stopLoss !== undefined && input.stopLoss !== null && !isNaN(Number(input.stopLoss))
+      ? Number(input.stopLoss)
+      : undefined;
   const leverage = Math.min(Math.max(1, Number(input.leverage) || 1), MAX_LEVERAGE);
   const marginMode: "ISOLATED" | "CROSS" = input.marginMode === "CROSS" ? "CROSS" : "ISOLATED";
 
@@ -577,6 +610,11 @@ export async function createPaperOrder(
   const nowMs = Date.now();
   const orderId = `ord_${nowMs}_${Math.random().toString(36).substring(2, 7)}`;
 
+  const effectivePrice = orderType === "LIMIT" && limitPrice ? limitPrice : quote.price;
+  if (!(isSoloLong && orderSide === "SELL") && (takeProfit !== undefined || stopLoss !== undefined)) {
+    validateTpSlBounds(effectivePrice, positionSide, takeProfit, stopLoss);
+  }
+
   const isStockMarketClosed = quote.asset_type === "Stock" && !quote.is_market_open;
 
   // Si el mercado bursátil está cerrado para acciones:
@@ -605,8 +643,8 @@ export async function createPaperOrder(
           `INSERT INTO paper_orders (
              id, game_id, user_id, symbol, asset_type, order_side,
              position_side, order_type, quantity, filled_quantity, limit_price,
-             leverage, margin_mode, status, created_at, filled_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, NULL, ?, ?, 'PENDING_OPEN', ?, NULL)`
+             take_profit, stop_loss, leverage, margin_mode, status, created_at, filled_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, NULL, ?, ?, ?, ?, 'PENDING_OPEN', ?, NULL)`
         )
         .bind(
           orderId,
@@ -618,6 +656,8 @@ export async function createPaperOrder(
           positionSide,
           orderType,
           quantity,
+          takeProfit ?? null,
+          stopLoss ?? null,
           leverage,
           marginMode,
           nowMs
@@ -658,8 +698,8 @@ export async function createPaperOrder(
           `INSERT INTO paper_orders (
              id, game_id, user_id, symbol, asset_type, order_side,
              position_side, order_type, quantity, filled_quantity, limit_price,
-             leverage, margin_mode, status, created_at, filled_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?, 'PENDING', ?, NULL)`
+             take_profit, stop_loss, leverage, margin_mode, status, created_at, filled_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?, ?, ?, 'PENDING', ?, NULL)`
         )
         .bind(
           orderId,
@@ -672,6 +712,8 @@ export async function createPaperOrder(
           orderType,
           quantity,
           limitPrice || null,
+          takeProfit ?? null,
+          stopLoss ?? null,
           leverage,
           marginMode,
           nowMs
@@ -736,8 +778,8 @@ export async function createPaperOrder(
           `INSERT INTO paper_orders (
              id, game_id, user_id, symbol, asset_type, order_side,
              position_side, order_type, quantity, filled_quantity, limit_price,
-             leverage, margin_mode, status, created_at, filled_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FILLED', ?, ?)`
+             take_profit, stop_loss, leverage, margin_mode, status, created_at, filled_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 'FILLED', ?, ?)`
         )
         .bind(
           orderId,
@@ -808,7 +850,9 @@ export async function createPaperOrder(
         leverage,
         marginMode,
         initialCap,
-        nowMs
+        nowMs,
+        takeProfit,
+        stopLoss
       );
 
       // Registrar orden como FILLED
@@ -817,8 +861,8 @@ export async function createPaperOrder(
           `INSERT INTO paper_orders (
              id, game_id, user_id, symbol, asset_type, order_side,
              position_side, order_type, quantity, filled_quantity, limit_price,
-             leverage, margin_mode, status, created_at, filled_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FILLED', ?, ?)`
+             take_profit, stop_loss, leverage, margin_mode, status, created_at, filled_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FILLED', ?, ?)`
         )
         .bind(
           orderId,
@@ -832,6 +876,8 @@ export async function createPaperOrder(
           quantity,
           quantity,
           limitPrice || null,
+          takeProfit ?? null,
+          stopLoss ?? null,
           leverage,
           marginMode,
           nowMs,
@@ -881,8 +927,8 @@ export async function createPaperOrder(
       `INSERT INTO paper_orders (
          id, game_id, user_id, symbol, asset_type, order_side,
          position_side, order_type, quantity, filled_quantity, limit_price,
-         leverage, margin_mode, status, created_at, filled_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?, 'PENDING', ?, NULL)`
+         take_profit, stop_loss, leverage, margin_mode, status, created_at, filled_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?, ?, ?, 'PENDING', ?, NULL)`
     )
     .bind(
       orderId,
@@ -895,6 +941,8 @@ export async function createPaperOrder(
       orderType,
       quantity,
       limitPrice || null,
+      takeProfit ?? null,
+      stopLoss ?? null,
       leverage,
       marginMode,
       nowMs
@@ -1156,7 +1204,9 @@ export async function matchPendingOrders(
           ord.leverage,
           ord.margin_mode,
           initialCap,
-          nowMs
+          nowMs,
+          ord.take_profit,
+          ord.stop_loss
         );
 
         await db
@@ -1176,4 +1226,119 @@ export async function matchPendingOrders(
   }
 
   return { matchedCount, ordersFilled };
+}
+
+/**
+ * Evalúa las posiciones abiertas con Take Profit o Stop Loss configurado.
+ * Obtiene las cotizaciones en lote y ejecuta el cierre de las posiciones que hayan tocado el nivel.
+ * Respeta Cero Look-Ahead Bias (t <= T y mercado abierto si es Stock).
+ */
+export async function evaluatePositionsTpSl(
+  db: D1Database,
+  groupId?: string,
+  targetGameId?: string,
+  marketType?: string
+): Promise<{ closedCount: number; positionsClosed: string[] }> {
+  await ensurePaperOrdersTable(db);
+  const isFutures = (marketType || "").toUpperCase() === "FUTURES" || (targetGameId && targetGameId.toLowerCase().includes("futur"));
+  const defaultGameId = isFutures ? DEFAULT_FUTURES_GAME_ID : DEFAULT_GAME_ID;
+  const tournament = targetGameId ? await getTournamentById(db, targetGameId) : await getActiveTournament(db, isFutures ? "FUTURES" : marketType);
+
+  if (targetGameId) {
+    const dateCheck = checkTournamentDateRange(tournament);
+    if (!dateCheck.allowed) {
+      return { closedCount: 0, positionsClosed: [] };
+    }
+  }
+
+  let query = "SELECT * FROM paper_positions WHERE (take_profit IS NOT NULL OR stop_loss IS NOT NULL)";
+  const params: unknown[] = [];
+  if (targetGameId) {
+    query += " AND game_id = ?";
+    params.push(targetGameId);
+  } else if (marketType) {
+    const effectiveGameId = tournament?.id || defaultGameId;
+    query += " AND game_id = ?";
+    params.push(effectiveGameId);
+  }
+  if (groupId) {
+    query += " AND user_id = ?";
+    params.push(groupId);
+  }
+
+  const res = await db.prepare(query).bind(...params).all<PositionRecord>();
+  const positions = res.results || [];
+  if (positions.length === 0) {
+    return { closedCount: 0, positionsClosed: [] };
+  }
+
+  const symbols = Array.from(new Set(positions.map((p) => p.symbol)));
+  const quotesMap = await fetchLiveMarketQuotesBatch(symbols);
+
+  let closedCount = 0;
+  const positionsClosed: string[] = [];
+  const tournamentCache = new Map<string, TournamentRecord | null>();
+
+  for (const pos of positions) {
+    try {
+      let posTournament = tournament;
+      if (pos.game_id !== tournament?.id) {
+        if (!tournamentCache.has(pos.game_id)) {
+          tournamentCache.set(pos.game_id, await getTournamentById(db, pos.game_id));
+        }
+        posTournament = tournamentCache.get(pos.game_id) || null;
+      }
+
+      const dateCheck = checkTournamentDateRange(posTournament);
+      if (!dateCheck.allowed) {
+        continue;
+      }
+
+      const quote = quotesMap.get(pos.symbol);
+      if (!quote) continue;
+
+      // Cero Look-Ahead Bias: si es acción bursátil y el mercado está cerrado, omitir estrictamente
+      if (quote.asset_type === "Stock" && !quote.is_market_open) {
+        continue;
+      }
+
+      const currentPrice = quote.price;
+      let isTriggered = false;
+
+      if (pos.side === "LONG") {
+        if (pos.take_profit != null && currentPrice >= pos.take_profit) {
+          isTriggered = true;
+        } else if (pos.stop_loss != null && currentPrice <= pos.stop_loss) {
+          isTriggered = true;
+        }
+      } else if (pos.side === "SHORT") {
+        if (pos.take_profit != null && currentPrice <= pos.take_profit) {
+          isTriggered = true;
+        } else if (pos.stop_loss != null && currentPrice >= pos.stop_loss) {
+          isTriggered = true;
+        }
+      }
+
+      if (!isTriggered) continue;
+
+      const nowMs = Date.now();
+      await executeClosePositionOperation(
+        db,
+        pos,
+        pos.quantity,
+        currentPrice,
+        nowMs
+      );
+
+      closedCount++;
+      positionsClosed.push(pos.id);
+    } catch (err) {
+      console.warn(
+        `[TpSlEngine] Error al evaluar TP/SL para posición ${pos.id} (${pos.symbol}):`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  return { closedCount, positionsClosed };
 }

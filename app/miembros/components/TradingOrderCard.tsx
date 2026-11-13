@@ -32,6 +32,9 @@ export const TradingOrderCard: React.FC<{
   const [amountUsd, setAmountUsd] = useState<string>("1000");
   const [leverage, setLeverage] = useState<number>(1);
   const [marginMode, setMarginMode] = useState<"ISOLATED" | "CROSS">("ISOLATED");
+  const [takeProfitPrice, setTakeProfitPrice] = useState<string>("");
+  const [stopLossPrice, setStopLossPrice] = useState<string>("");
+  const [enableTpSl, setEnableTpSl] = useState<boolean>(false);
 
   const [orderFeedback, setOrderFeedback] = useState<{
     type: "success" | "error" | "info";
@@ -179,6 +182,8 @@ export const TradingOrderCard: React.FC<{
     setLimitPrice("");
     setQuantity("");
     setAmountUsd("");
+    setTakeProfitPrice("");
+    setStopLossPrice("");
     if (!preserveType) {
       setOrderType("MARKET");
     }
@@ -189,6 +194,8 @@ export const TradingOrderCard: React.FC<{
     if (newSide !== orderSide) {
       setOrderSide(newSide);
       setLimitPrice("");
+      setTakeProfitPrice("");
+      setStopLossPrice("");
     }
   };
 
@@ -222,6 +229,8 @@ export const TradingOrderCard: React.FC<{
     if (quote && lastNormalizedSymbol.current !== quote.symbol) {
       lastNormalizedSymbol.current = quote.symbol;
       setLimitPrice(""); // Limpiar siempre el precio límite al cambiar de activo
+      setTakeProfitPrice("");
+      setStopLossPrice("");
 
       if (sizingMode === "USD") {
         if (!amountUsd || parseFloat(amountUsd) <= 0) {
@@ -364,10 +373,53 @@ export const TradingOrderCard: React.FC<{
       }
     }
 
+    // Validación de Take Profit y Stop Loss respecto al precio efectivo
+    const tpNum = parseFloat(takeProfitPrice) || 0;
+    const slNum = parseFloat(stopLossPrice) || 0;
+    const hasTpSl = enableTpSl && (tpNum > 0 || slNum > 0);
+
+    if (hasTpSl) {
+      const isShort = orderSide === "SELL" && !isSoloLong;
+      if (isShort) {
+        if (tpNum > 0 && tpNum >= effectivePrice) {
+          setOrderFeedback({
+            type: "error",
+            text: `Para posiciones SHORT, el Take Profit ($${tpNum.toFixed(2)}) debe ser estrictamente menor al precio de entrada ($${effectivePrice.toFixed(2)}).`,
+          });
+          return;
+        }
+        if (slNum > 0 && slNum <= effectivePrice) {
+          setOrderFeedback({
+            type: "error",
+            text: `Para posiciones SHORT, el Stop Loss ($${slNum.toFixed(2)}) debe ser estrictamente mayor al precio de entrada ($${effectivePrice.toFixed(2)}).`,
+          });
+          return;
+        }
+      } else {
+        if (tpNum > 0 && tpNum <= effectivePrice) {
+          setOrderFeedback({
+            type: "error",
+            text: `Para posiciones LONG, el Take Profit ($${tpNum.toFixed(2)}) debe ser estrictamente mayor al precio de entrada ($${effectivePrice.toFixed(2)}).`,
+          });
+          return;
+        }
+        if (slNum > 0 && slNum >= effectivePrice) {
+          setOrderFeedback({
+            type: "error",
+            text: `Para posiciones LONG, el Stop Loss ($${slNum.toFixed(2)}) debe ser estrictamente menor al precio de entrada ($${effectivePrice.toFixed(2)}).`,
+          });
+          return;
+        }
+      }
+    }
+
     setOrderFeedback({
       type: "info",
       text: "Orden enviada al motor...",
     });
+
+    const tpArg = hasTpSl && tpNum > 0 ? tpNum : undefined;
+    const slArg = hasTpSl && slNum > 0 ? slNum : undefined;
 
     const res = await placeOrder(
       symbol,
@@ -376,7 +428,9 @@ export const TradingOrderCard: React.FC<{
       leverage,
       marginMode,
       orderType,
-      orderType === "LIMIT" ? limitPriceNum : undefined
+      orderType === "LIMIT" ? limitPriceNum : undefined,
+      tpArg,
+      slArg
     );
 
     if (res.success) {
@@ -1037,6 +1091,100 @@ export const TradingOrderCard: React.FC<{
             {maxAllowedLeverage > 50 && <span>50x</span>}
             <span>{maxAllowedLeverage}x (Máx)</span>
           </div>
+        </div>
+
+        {/* Configuración Opcional de Take Profit y Stop Loss */}
+        <div className="rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-3.5">
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold uppercase tracking-[0.1em] text-[#0b1727]">
+              <input
+                type="checkbox"
+                checked={enableTpSl}
+                onChange={(e) => setEnableTpSl(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-[#1e3a8a] focus:ring-[#1e3a8a] accent-[#1e3a8a]"
+              />
+              <span>Take Profit &amp; Stop Loss</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => setEnableTpSl(!enableTpSl)}
+              className="text-[11px] font-semibold text-[#1e3a8a] hover:underline"
+            >
+              {enableTpSl ? "Ocultar" : "Configurar"}
+            </button>
+          </div>
+
+          {enableTpSl && (
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-[#e2e8f0]">
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">
+                    Take Profit (USD)
+                  </label>
+                  <span className="text-[10px] font-mono text-[#64748b]">
+                    {orderSide === "SELL" && !isSoloLong ? "< Entrada" : "> Entrada"}
+                  </span>
+                </div>
+                <div className="mt-1 relative">
+                  <span className="absolute inset-y-0 left-0 pl-2.5 flex items-center text-xs font-bold text-[#64748b]">$</span>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder={
+                      effectivePrice > 0
+                        ? orderSide === "SELL" && !isSoloLong
+                          ? (effectivePrice * 0.95).toFixed(2)
+                          : (effectivePrice * 1.05).toFixed(2)
+                        : "0.00"
+                    }
+                    value={takeProfitPrice}
+                    onChange={(e) => setTakeProfitPrice(e.target.value)}
+                    className="w-full rounded-lg border border-[#cbd5e1] pl-6 pr-3 py-1.5 text-xs font-mono font-medium text-[#0b1727] focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-[#64748b]">
+                  {orderSide === "SELL" && !isSoloLong
+                    ? "Objetivo de ganancia para posición en corto."
+                    : "Objetivo de ganancia para posición en largo."}
+                </p>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-rose-700">
+                    Stop Loss (USD)
+                  </label>
+                  <span className="text-[10px] font-mono text-[#64748b]">
+                    {orderSide === "SELL" && !isSoloLong ? "> Entrada" : "< Entrada"}
+                  </span>
+                </div>
+                <div className="mt-1 relative">
+                  <span className="absolute inset-y-0 left-0 pl-2.5 flex items-center text-xs font-bold text-[#64748b]">$</span>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder={
+                      effectivePrice > 0
+                        ? orderSide === "SELL" && !isSoloLong
+                          ? (effectivePrice * 1.05).toFixed(2)
+                          : (effectivePrice * 0.95).toFixed(2)
+                        : "0.00"
+                    }
+                    value={stopLossPrice}
+                    onChange={(e) => setStopLossPrice(e.target.value)}
+                    className="w-full rounded-lg border border-[#cbd5e1] pl-6 pr-3 py-1.5 text-xs font-mono font-medium text-[#0b1727] focus:border-rose-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-[#64748b]">
+                  {orderSide === "SELL" && !isSoloLong
+                    ? "Protección contra suba para posición en corto."
+                    : "Protección contra caída para posición en largo."}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Desglose Cuantitativo de la Orden */}
