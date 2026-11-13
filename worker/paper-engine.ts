@@ -1349,13 +1349,22 @@ export async function saveTournament(
   if (params.reset_balances || params.createNew) {
     await db.prepare("DELETE FROM paper_positions WHERE game_id = ?").bind(tournamentId).run();
     await db.prepare("DELETE FROM paper_trades WHERE game_id = ?").bind(tournamentId).run();
+    try {
+      await db.prepare("DELETE FROM paper_orders WHERE game_id = ?").bind(tournamentId).run();
+    } catch {}
+    try {
+      await db.prepare("DELETE FROM portfolio_daily_snapshots WHERE game_id = ?").bind(tournamentId).run();
+    } catch {}
+    try {
+      await db.prepare("DELETE FROM futures_equity_snapshots_15m WHERE game_id = ?").bind(tournamentId).run();
+    } catch {}
     await db
       .prepare(
         `UPDATE paper_portfolios
-         SET cash_balance = ?, realized_pnl = 0.0, total_fees = 0.0, updated_at = ?
+         SET cash_balance = ?, realized_pnl = 0.0, total_fees = 0.0, peak_equity = ?, max_drawdown_nominal = 0.0, max_drawdown_pct = 0.0, updated_at = ?
          WHERE game_id = ?`
       )
-      .bind(initialCapital, nowMs, tournamentId)
+      .bind(initialCapital, initialCapital, nowMs, tournamentId)
       .run();
 
     // Asegurar semillas de portafolios para todos los grupos en el torneo
@@ -1412,6 +1421,15 @@ export async function deleteTournament(
   // Eliminar posiciones, trades, balances y participantes vinculados al torneo
   await db.prepare("DELETE FROM paper_positions WHERE game_id = ?").bind(cleanId).run();
   await db.prepare("DELETE FROM paper_trades WHERE game_id = ?").bind(cleanId).run();
+  try {
+    await db.prepare("DELETE FROM paper_orders WHERE game_id = ?").bind(cleanId).run();
+  } catch {}
+  try {
+    await db.prepare("DELETE FROM portfolio_daily_snapshots WHERE game_id = ?").bind(cleanId).run();
+  } catch {}
+  try {
+    await db.prepare("DELETE FROM futures_equity_snapshots_15m WHERE game_id = ?").bind(cleanId).run();
+  } catch {}
   await db.prepare("DELETE FROM paper_portfolios WHERE game_id = ?").bind(cleanId).run();
   await db.prepare("DELETE FROM game_participants WHERE game_id = ?").bind(cleanId).run();
   await db.prepare("DELETE FROM games WHERE id = ?").bind(cleanId).run();
