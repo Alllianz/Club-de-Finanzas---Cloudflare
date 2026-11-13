@@ -162,13 +162,7 @@ export const PositionsTable: React.FC = () => {
     <div className="rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-sm">
       <div className="flex items-center justify-between border-b border-[#f1f5f9] pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="h-[2px] w-4 bg-[#b89047]" />
-            <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]">
-              Cartera Abierta
-            </span>
-          </div>
-          <h3 className="mt-1 font-serif text-xl font-bold text-[#0b1727]">
+          <h3 className="font-serif text-xl font-bold text-[#0b1727]">
             Posiciones en Curso ({positions.length})
           </h3>
         </div>

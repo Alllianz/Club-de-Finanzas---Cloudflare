@@ -10,13 +10,10 @@ import { PendingOrdersTable } from "./PendingOrdersTable";
 import { TradesHistoryTable } from "./TradesHistoryTable";
 import { GroupLeaderboard } from "./GroupLeaderboard";
 import { TournamentSelector } from "./TournamentSelector";
-import { checkTournamentDateRange, formatTournamentDate } from "../utils/tournament-dates";
 
 export const PaperTradingDashboard: React.FC = () => {
   const { currentGroup, tournament, logout, refreshTradingData, isActionLoading } = useGroupTrading();
   const [selectedSymbol, setSelectedSymbol] = useState<string>("");
-
-  const dateStatus = checkTournamentDateRange(tournament);
 
   return (
     <div className="space-y-8">
@@ -34,23 +31,6 @@ export const PaperTradingDashboard: React.FC = () => {
             {currentGroup?.id === "allianz" && (
               <span className="rounded-full bg-[#b89047]/20 border border-[#b89047]/50 px-2 py-0.5 text-[10px] font-bold text-[#facc15]">
                 👑 Administrador de Torneo
-              </span>
-            )}
-            {tournament && (tournament.startDate || tournament.endDate) && (
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
-                  dateStatus.status === "SCHEDULED"
-                    ? "bg-amber-500/20 text-amber-300 border-amber-400/40"
-                    : dateStatus.status === "CONCLUDED"
-                    ? "bg-red-500/20 text-red-300 border-red-400/40"
-                    : "bg-emerald-500/20 text-emerald-300 border-emerald-400/40"
-                }`}
-              >
-                {dateStatus.status === "SCHEDULED"
-                  ? `⏳ Inicia: ${formatTournamentDate(tournament.startDate)}`
-                  : dateStatus.status === "CONCLUDED"
-                  ? `🛑 Concluido: ${formatTournamentDate(tournament.endDate)}`
-                  : `🟢 Vigencia: ${tournament.startDate ? formatTournamentDate(tournament.startDate) : "Apertura"} - ${tournament.endDate ? formatTournamentDate(tournament.endDate) : "Sin fin"}`}
               </span>
             )}
             {tournament && !tournament.allowShort && (
@@ -93,16 +73,12 @@ export const PaperTradingDashboard: React.FC = () => {
       {/* Tarjeta de Resumen Patrimonial */}
       <PortfolioOverviewCard />
 
-      {/* Cuadrícula Operativa: Terminal de Órdenes + Posiciones */}
-      <div className="grid gap-8 lg:grid-cols-12">
-        <div className="lg:col-span-5">
-          <TradingOrderCard initialSymbol={selectedSymbol} />
-        </div>
-        <div className="space-y-8 lg:col-span-7">
-          <PositionsTable />
-          <PendingOrdersTable />
-          <TradesHistoryTable />
-        </div>
+      {/* Resumen Operativo: TradingOrderCard full-width + Tablas apiladas */}
+      <div className="space-y-6">
+        <TradingOrderCard initialSymbol={selectedSymbol} />
+        <PositionsTable />
+        <PendingOrdersTable />
+        <TradesHistoryTable />
       </div>
 
       {/* Leaderboard Oficial de los 6 Grupos */}

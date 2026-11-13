@@ -82,19 +82,15 @@ export const FuturosPaperTradingDashboard: React.FC = () => {
       {/* Tarjeta de Resumen Patrimonial (Idéntica a Portafolio) */}
       <PortfolioOverviewCard />
 
-      {/* Cuadrícula Operativa: Terminal de Órdenes + Posiciones */}
-      <div className="grid gap-8 lg:grid-cols-12">
-        <div className="lg:col-span-5">
-          <TradingOrderCard
-            initialSymbol={selectedSymbol}
-            customTickers={FUTURES_TICKERS}
-          />
-        </div>
-        <div className="space-y-8 lg:col-span-7">
-          <PositionsTable />
-          <PendingOrdersTable />
-          <TradesHistoryTable />
-        </div>
+      {/* Terminal de Órdenes Full-Width + Tablas Operativas Apiladas */}
+      <div className="space-y-6">
+        <TradingOrderCard
+          initialSymbol={selectedSymbol}
+          customTickers={FUTURES_TICKERS}
+        />
+        <PositionsTable />
+        <PendingOrdersTable />
+        <TradesHistoryTable />
       </div>
 
       {/* Leaderboard Oficial de los 6 Grupos en el Torneo de Futuros */}
