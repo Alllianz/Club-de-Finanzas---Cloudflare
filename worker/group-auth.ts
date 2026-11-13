@@ -45,6 +45,30 @@ export const OFFICIAL_GROUPS: Record<string, GroupConfig> = {
     password: "GOOG",
     assignedAsset: "GOOG",
   },
+  grupo_7: {
+    id: "grupo_7",
+    name: "Grupo 7",
+    password: "AVGO",
+    assignedAsset: "AVGO",
+  },
+  grupo_8: {
+    id: "grupo_8",
+    name: "Grupo 8",
+    password: "LLY",
+    assignedAsset: "LLY",
+  },
+  grupo_9: {
+    id: "grupo_9",
+    name: "Grupo 9",
+    password: "PAM",
+    assignedAsset: "PAM",
+  },
+  grupo_10: {
+    id: "grupo_10",
+    name: "Grupo 10",
+    password: "INO",
+    assignedAsset: "INO",
+  },
   allianz: {
     id: "allianz",
     name: "Allianz",
@@ -67,6 +91,10 @@ export function normalizeGroupId(input: string): string | null {
   if (clean === "grupo4" || clean === "4" || clean === "g4") return "grupo_4";
   if (clean === "grupo5" || clean === "5" || clean === "g5") return "grupo_5";
   if (clean === "grupo6" || clean === "6" || clean === "g6") return "grupo_6";
+  if (clean === "grupo7" || clean === "7" || clean === "g7") return "grupo_7";
+  if (clean === "grupo8" || clean === "8" || clean === "g8") return "grupo_8";
+  if (clean === "grupo9" || clean === "9" || clean === "g9") return "grupo_9";
+  if (clean === "grupo10" || clean === "10" || clean === "g10") return "grupo_10";
   if (clean === "allianz") return "allianz";
   
   return null;

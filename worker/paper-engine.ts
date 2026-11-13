@@ -117,6 +117,52 @@ export async function ensurePortfolioSeed(
   );
 }
 
+export async function computeCrossUnrealizedPnl(
+  db: D1Database,
+  gameId: string,
+  groupId: string,
+  priceCache?: Map<string, number>
+): Promise<number> {
+  const isFutures = gameId.toLowerCase().includes("futur");
+  const posResult = await db
+    .prepare("SELECT * FROM paper_positions WHERE game_id = ? AND user_id = ?")
+    .bind(gameId, groupId)
+    .all<PositionRecord>();
+
+  const rawPositions = posResult.results || [];
+  const crossPositions = rawPositions.filter(
+    (p) => (p.margin_mode || (isFutures ? "CROSS" : "ISOLATED")).toUpperCase() === "CROSS"
+  );
+
+  if (crossPositions.length === 0) {
+    return 0;
+  }
+
+  const cache = priceCache || new Map<string, number>();
+  const missing = Array.from(new Set(crossPositions.map((p) => p.symbol).filter((s) => !cache.has(s))));
+  if (missing.length > 0) {
+    try {
+      const batchQuotes = await fetchLiveMarketQuotesBatch(missing);
+      for (const [sym, q] of batchQuotes.entries()) {
+        cache.set(sym, q.price);
+      }
+    } catch {}
+  }
+
+  let crossUnrealized = 0;
+  for (const pos of crossPositions) {
+    const currentPrice = pos.current_price || pos.entry_price;
+    const livePrice = cache.get(pos.symbol) ?? currentPrice;
+    if (pos.side === "LONG") {
+      crossUnrealized += (livePrice - pos.entry_price) * pos.quantity;
+    } else {
+      crossUnrealized += (pos.entry_price - livePrice) * pos.quantity;
+    }
+  }
+
+  return crossUnrealized;
+}
+
 /**
  * Re-cotiza posiciones abiertas y calcula el patrimonio Mark-to-Market
  */
@@ -155,6 +201,7 @@ export async function getMarkedPortfolio(
 
   let totalUsedMargin = 0;
   let totalUnrealizedPnl = 0;
+  let crossUnrealizedPnl = 0;
 
   for (const pos of rawPositions) {
     const currentPrice = pos.current_price || pos.entry_price;
@@ -170,6 +217,11 @@ export async function getMarkedPortfolio(
     const margin = Number(pos.initial_margin) || 0;
     totalUsedMargin += margin;
     totalUnrealizedPnl += unrealized;
+
+    const posMarginMode = (pos.margin_mode || (isFutures ? "CROSS" : "ISOLATED")).toUpperCase();
+    if (posMarginMode === "CROSS") {
+      crossUnrealizedPnl += unrealized;
+    }
 
     markedPositions.push({
       ...pos,
@@ -268,7 +320,7 @@ export async function getMarkedPortfolio(
       equity,
       used_margin: totalUsedMargin,
       unrealized_pnl: totalUnrealizedPnl,
-      free_margin: port.cash_balance,
+      free_margin: Math.max(0, port.cash_balance + crossUnrealizedPnl),
       roe_pct: roePct,
       peak_equity: peak,
       max_drawdown_nominal: maxDdNominal,
@@ -493,12 +545,28 @@ export async function executeOrder(
   const initialMargin = notional / leverage;
   const requiredFunds = initialMargin + fee;
 
-  // Verificar caja disponible en portafolio
+  // Verificar caja / margen disponible en portafolio
   const port = await ensurePortfolioSeed(db, groupId, gameId, initialCap, isFutures ? "FUTURES" : input.marketType);
-  if (port.cash_balance < requiredFunds) {
-    throw new Error(
-      `Poder de compra insuficiente: la operación requiere $${requiredFunds.toFixed(2)} ($${initialMargin.toFixed(2)} de margen + $${fee.toFixed(2)} de comisión) y el grupo dispone de $${port.cash_balance.toFixed(2)} de liquidez.`
+  if (marginMode === "CROSS") {
+    const crossUnrealizedPnl = await computeCrossUnrealizedPnl(
+      db,
+      gameId,
+      groupId,
+      new Map([[quote.symbol, quote.price]])
     );
+    const availableMargin = port.cash_balance + crossUnrealizedPnl;
+    if (availableMargin < requiredFunds) {
+      throw new Error(
+        `Margen cruzado insuficiente: la operación requiere $${requiredFunds.toFixed(2)} ($${initialMargin.toFixed(2)} de margen + $${fee.toFixed(2)} de comisión) y el grupo dispone de $${availableMargin.toFixed(2)} de margen libre disponible ($${port.cash_balance.toFixed(2)} de caja + $${crossUnrealizedPnl.toFixed(2)} de PnL no realizado cruzado).`
+      );
+    }
+  } else {
+    // Keep ISOLATED strict on cash_balance
+    if (port.cash_balance < requiredFunds) {
+      throw new Error(
+        `Poder de compra insuficiente: la operación requiere $${requiredFunds.toFixed(2)} ($${initialMargin.toFixed(2)} de margen + $${fee.toFixed(2)} de comisión) y el grupo dispone de $${port.cash_balance.toFixed(2)} de liquidez.`
+      );
+    }
   }
 
   const nowMs = Date.now();
@@ -507,16 +575,30 @@ export async function executeOrder(
   const liquidationPrice = calculateLiquidationPrice(executedPrice, leverage, positionSide);
 
   // Débito atómico de la caja
-  const debitRes = await db
-    .prepare(
-      `UPDATE paper_portfolios
-       SET cash_balance = cash_balance - ?,
-           total_fees = total_fees + ?,
-           updated_at = ?
-       WHERE game_id = ? AND user_id = ? AND cash_balance >= ?`
-    )
-    .bind(requiredFunds, fee, nowMs, gameId, groupId, requiredFunds)
-    .run();
+  let debitRes;
+  if (marginMode === "CROSS") {
+    debitRes = await db
+      .prepare(
+        `UPDATE paper_portfolios
+         SET cash_balance = cash_balance - ?,
+             total_fees = total_fees + ?,
+             updated_at = ?
+         WHERE game_id = ? AND user_id = ?`
+      )
+      .bind(requiredFunds, fee, nowMs, gameId, groupId)
+      .run();
+  } else {
+    debitRes = await db
+      .prepare(
+        `UPDATE paper_portfolios
+         SET cash_balance = cash_balance - ?,
+             total_fees = total_fees + ?,
+             updated_at = ?
+         WHERE game_id = ? AND user_id = ? AND cash_balance >= ?`
+      )
+      .bind(requiredFunds, fee, nowMs, gameId, groupId, requiredFunds)
+      .run();
+  }
 
   if (!debitRes.success) {
     throw new Error("No se pudo debitar el saldo. Saldo insuficiente o colisión de concurrencia.");

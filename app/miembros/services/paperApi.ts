@@ -386,6 +386,7 @@ export async function fetchEquityCurveApi(
     const params = new URLSearchParams();
     if (gameId) params.append("gameId", gameId);
     if (marketType) params.append("marketType", marketType);
+    params.append("reconstruct", "true");
     const query = params.toString() ? `?${params.toString()}` : "";
     const res = await fetch(`${API_BASE}/api/paper/equity-curve${query}`, {
       signal,

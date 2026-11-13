@@ -71,7 +71,7 @@ function FuturosEngineViewerInner({
             Laboratorio de Futuros & Paper Trading Aegis
           </h2>
           <p className="mt-2 text-xs leading-relaxed text-[#94a3b8] sm:text-sm">
-            Terminal de simulación de trading en vivo de contratos de futuros (Crypto FX USDT/ARS Binance, Commodities, Índices y Cripto Perpetuos) para los Grupos 1 al 6 y Allianz, gestión de márgenes con apalancamiento de hasta 100x y torneos independientes.
+            Terminal de simulación de trading en vivo de contratos de futuros (Crypto FX USDT/ARS Binance, Commodities, Índices y Cripto Perpetuos) para los Grupos 1 al 10 y Allianz, gestión de márgenes con apalancamiento de hasta 100x y torneos independientes.
           </p>
         </div>
 
@@ -224,7 +224,7 @@ function FuturosEngineViewerInner({
 
               <div className="border-t border-[#f1f5f9] pt-3 text-center">
                 <p className="text-[11px] text-[#94a3b8]">
-                  Usuarios autorizados: Allianz · Grupo 1 al 6 · Capital de torneo: $10,000 USD
+                  Usuarios autorizados: Allianz · Grupo 1 al 10 · Capital de torneo: $10,000 USD
                 </p>
               </div>
             </form>

@@ -49,6 +49,7 @@ export interface PortfolioRecord {
   cash_balance: number;
   realized_pnl: number;
   total_fees: number;
+  free_margin?: number;
   peak_equity?: number;
   max_drawdown_nominal?: number;
   max_drawdown_pct?: number;

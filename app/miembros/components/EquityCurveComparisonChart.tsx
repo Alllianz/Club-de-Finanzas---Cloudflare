@@ -23,6 +23,10 @@ const GROUP_COLORS: Record<string, string> = {
   grupo_4: "#059669",
   grupo_5: "#7c3aed",
   grupo_6: "#db2777",
+  grupo_7: "#0d9488",
+  grupo_8: "#ea580c",
+  grupo_9: "#84cc16",
+  grupo_10: "#06b6d4",
   allianz: "#1e3a8a",
 };
 
@@ -50,9 +54,10 @@ interface TooltipPayloadEntry {
 interface CustomTooltipProps {
   active?: boolean;
   payload?: TooltipPayloadEntry[];
-  label?: string;
+  label?: string | number;
   unitMode: "NOMINAL" | "PERCENT";
   namesMap: Record<string, string>;
+  isFutures?: boolean;
 }
 
 const CustomChartTooltip: React.FC<CustomTooltipProps> = ({
@@ -61,15 +66,27 @@ const CustomChartTooltip: React.FC<CustomTooltipProps> = ({
   label,
   unitMode,
   namesMap,
+  isFutures = false,
 }) => {
   if (!active || !payload || payload.length === 0) return null;
 
   const sortedPayload = [...payload].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0));
 
+  let labelText = "";
+  if (typeof label === "number" || (typeof label === "string" && !isNaN(Number(label)) && Number(label) > 1000000000)) {
+    const ts = Number(label);
+    const d = new Date(ts);
+    labelText = isFutures
+      ? d.toLocaleDateString("es-AR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+      : d.toLocaleDateString("es-AR", { month: "short", day: "numeric" });
+  } else {
+    labelText = String(label || "");
+  }
+
   return (
     <div className="rounded-xl border border-[#e2e8f0] bg-white/95 p-3.5 shadow-xl backdrop-blur-xs text-xs min-w-[210px] z-50">
       <div className="border-b border-[#f1f5f9] pb-2 mb-2 font-mono text-[11px] font-semibold text-[#64748b]">
-        {label}
+        {labelText}
       </div>
       <div className="space-y-1.5 max-h-56 overflow-y-auto">
         {sortedPayload.map((entry) => {
@@ -265,6 +282,16 @@ export const EquityCurveComparisonChart: React.FC<{
 
     const sortedTimestamps = Array.from(timestampSet).sort((a, b) => a - b);
 
+    const pointsMapByGroup: Record<string, Map<number, number>> = {};
+    for (const g of targetGroups) {
+      const pMap = new Map<number, number>();
+      const pts = seriesByGroup[g.id] || [];
+      for (const p of pts) {
+        pMap.set(p.timestamp, p.equity);
+      }
+      pointsMapByGroup[g.id] = pMap;
+    }
+
     const latestValPerGroup: Record<string, number> = {};
 
     const chartData = sortedTimestamps.map((ts) => {
@@ -279,13 +306,13 @@ export const EquityCurveComparisonChart: React.FC<{
       };
 
       for (const g of targetGroups) {
-        const pts = seriesByGroup[g.id] || [];
-        const exactPt = pts.find((p) => p.timestamp === ts);
+        const pMap = pointsMapByGroup[g.id];
+        const valAtTs = pMap ? pMap.get(ts) : undefined;
 
         let equityVal = latestValPerGroup[g.id] !== undefined ? latestValPerGroup[g.id] : baseCapital;
 
-        if (exactPt) {
-          equityVal = exactPt.equity;
+        if (valAtTs !== undefined) {
+          equityVal = valAtTs;
           latestValPerGroup[g.id] = equityVal;
         }
 
@@ -579,11 +606,19 @@ export const EquityCurveComparisonChart: React.FC<{
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                 <XAxis
-                  dataKey="formattedDate"
+                  dataKey="timestamp"
+                  type="number"
+                  domain={['dataMin', 'dataMax']}
                   tickLine={false}
                   stroke="#94a3b8"
                   fontSize={10}
                   tickMargin={6}
+                  tickFormatter={(ts) => {
+                    const d = new Date(Number(ts));
+                    return isFutures
+                      ? d.toLocaleDateString("es-AR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                      : d.toLocaleDateString("es-AR", { month: "short", day: "numeric" });
+                  }}
                 />
                 <YAxis
                   stroke="#94a3b8"
@@ -602,6 +637,7 @@ export const EquityCurveComparisonChart: React.FC<{
                     <CustomChartTooltip
                       unitMode={unitMode}
                       namesMap={groupNamesMap}
+                      isFutures={isFutures}
                     />
                   }
                 />

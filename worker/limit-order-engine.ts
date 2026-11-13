@@ -19,6 +19,7 @@ import {
   computeOrderFee,
   calculateLiquidationPrice,
   ensurePortfolioSeed,
+  computeCrossUnrealizedPnl,
   DEFAULT_GAME_ID,
   DEFAULT_FUTURES_GAME_ID,
   INITIAL_CAPITAL,
@@ -239,11 +240,21 @@ export async function executeOpenPositionOperation(
   const initialMargin = notional / leverage;
   const requiredFunds = initialMargin + fee;
 
-  // Verificar caja
+  // Verificar caja / margen disponible
   const port = await ensurePortfolioSeed(db, groupId, gameId, initialCap);
-  if (port.cash_balance < requiredFunds) {
+  let crossUnrealizedPnl = 0;
+  if (marginMode === "CROSS") {
+    crossUnrealizedPnl = await computeCrossUnrealizedPnl(
+      db,
+      gameId,
+      groupId,
+      new Map([[symbol, executedPrice]])
+    );
+  }
+  const availableCash = marginMode === "CROSS" ? port.cash_balance + crossUnrealizedPnl : port.cash_balance;
+  if (availableCash < requiredFunds) {
     throw new Error(
-      `Poder de compra insuficiente: requiere $${requiredFunds.toFixed(2)} ($${initialMargin.toFixed(2)} margen + $${fee.toFixed(2)} comisión) y dispone de $${port.cash_balance.toFixed(2)}.`
+      `Poder de compra insuficiente: requiere $${requiredFunds.toFixed(2)} ($${initialMargin.toFixed(2)} margen + $${fee.toFixed(2)} comisión) y dispone de $${availableCash.toFixed(2)}${marginMode === "CROSS" ? ` ($${port.cash_balance.toFixed(2)} caja + $${crossUnrealizedPnl.toFixed(2)} PnL cruzado)` : ""}.`
     );
   }
 
@@ -252,16 +263,30 @@ export async function executeOpenPositionOperation(
   const liquidationPrice = calculateLiquidationPrice(executedPrice, leverage, positionSide);
 
   // Débito atómico de caja
-  const debitRes = await db
-    .prepare(
-      `UPDATE paper_portfolios
-       SET cash_balance = cash_balance - ?,
-           total_fees = total_fees + ?,
-           updated_at = ?
-       WHERE game_id = ? AND user_id = ? AND cash_balance >= ?`
-    )
-    .bind(requiredFunds, fee, nowMs, gameId, groupId, requiredFunds)
-    .run();
+  let debitRes;
+  if (marginMode === "CROSS") {
+    debitRes = await db
+      .prepare(
+        `UPDATE paper_portfolios
+         SET cash_balance = cash_balance - ?,
+             total_fees = total_fees + ?,
+             updated_at = ?
+         WHERE game_id = ? AND user_id = ?`
+      )
+      .bind(requiredFunds, fee, nowMs, gameId, groupId)
+      .run();
+  } else {
+    debitRes = await db
+      .prepare(
+        `UPDATE paper_portfolios
+         SET cash_balance = cash_balance - ?,
+             total_fees = total_fees + ?,
+             updated_at = ?
+         WHERE game_id = ? AND user_id = ? AND cash_balance >= ?`
+      )
+      .bind(requiredFunds, fee, nowMs, gameId, groupId, requiredFunds)
+      .run();
+  }
 
   if (!debitRes.success) {
     throw new Error("No se pudo debitar el saldo. Saldo insuficiente o colisión de concurrencia.");
@@ -382,7 +407,8 @@ async function checkBuySolvency(
   effectivePrice: number,
   leverage: number,
   actionLabel: string,
-  excludeOrderId?: string
+  excludeOrderId?: string,
+  marginMode?: "ISOLATED" | "CROSS"
 ): Promise<void> {
   const notional = effectivePrice * quantity;
   const estFee = computeOrderFee(assetType, quantity, notional);
@@ -430,10 +456,15 @@ async function checkBuySolvency(
     }
   }
 
-  const availableCash = port.cash_balance - committedPendingCapital;
+  let crossUnrealizedPnl = 0;
+  if (marginMode === "CROSS") {
+    crossUnrealizedPnl = await computeCrossUnrealizedPnl(db, gameId, groupId);
+  }
+
+  const availableCash = port.cash_balance + crossUnrealizedPnl - committedPendingCapital;
   if (availableCash < totalRequired) {
     throw new Error(
-      `Efectivo insuficiente para ${actionLabel}: Se requieren $${totalRequired.toFixed(2)} ($${requiredMargin.toFixed(2)} de margen + $${estFee.toFixed(2)} de comisión) a precio de referencia $${effectivePrice.toFixed(2)}. Saldo de cuenta: $${port.cash_balance.toFixed(2)}, comprometido en órdenes pendientes: $${committedPendingCapital.toFixed(2)}, efectivo libre disponible: $${Math.max(0, availableCash).toFixed(2)}.`
+      `Efectivo insuficiente para ${actionLabel}: Se requieren $${totalRequired.toFixed(2)} ($${requiredMargin.toFixed(2)} de margen + $${estFee.toFixed(2)} de comisión) a precio de referencia $${effectivePrice.toFixed(2)}. Saldo de cuenta: $${port.cash_balance.toFixed(2)}${marginMode === "CROSS" ? `, PnL no realizado cruzado: $${crossUnrealizedPnl.toFixed(2)}` : ""}, comprometido en órdenes pendientes: $${committedPendingCapital.toFixed(2)}, efectivo libre disponible: $${Math.max(0, availableCash).toFixed(2)}.`
     );
   }
 }
@@ -563,7 +594,9 @@ export async function createPaperOrder(
           quantity,
           quote.price,
           leverage,
-          "programar orden para la apertura"
+          "programar orden para la apertura",
+          undefined,
+          marginMode
         );
       }
 
@@ -614,7 +647,9 @@ export async function createPaperOrder(
           quantity,
           limitPrice || quote.price,
           leverage,
-          "colocar orden límite fuera de hora"
+          "colocar orden límite fuera de hora",
+          undefined,
+          marginMode
         );
       }
 
@@ -754,7 +789,9 @@ export async function createPaperOrder(
           quantity,
           executionPrice,
           leverage,
-          "ejecutar orden de compra"
+          "ejecutar orden de compra",
+          undefined,
+          marginMode
         );
       }
 
@@ -832,7 +869,9 @@ export async function createPaperOrder(
       quantity,
       limitPrice || quote.price,
       leverage,
-      "colocar orden límite"
+      "colocar orden límite",
+      undefined,
+      marginMode
     );
   }
 

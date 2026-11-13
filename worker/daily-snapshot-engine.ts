@@ -664,7 +664,7 @@ export async function reconstructEquityCurveFromTrades(
   for (const grp of groups) {
     const groupTrades = allTrades.filter((t) => t.user_id === grp.id);
     const firstTradeTs = groupTrades.length > 0 ? Number(groupTrades[0].timestamp) : null;
-    const initialTs = firstTradeTs && firstTradeTs <= tournamentStartTs ? firstTradeTs - 60000 : tournamentStartTs;
+    const initialTs = firstTradeTs !== null && firstTradeTs <= tournamentStartTs ? firstTradeTs - 1000 : tournamentStartTs;
 
     let runningEquity = initialCap;
     let peakEquity = initialCap;
@@ -885,11 +885,15 @@ export async function getEquityCurveSeries(
       for (const grp of groups) {
         if (reconstruct || seriesByGroup[grp.id].points.length < 2) {
           const tradePoints = reconstructedCurves[grp.id] || [];
-          const combined = [...seriesByGroup[grp.id].points, ...tradePoints];
-          combined.sort((a, b) => a.timestamp - b.timestamp);
+          const sourcePoints = reconstruct
+            ? [...tradePoints]
+            : (seriesByGroup[grp.id].points.length === 0
+                ? [...tradePoints]
+                : [...seriesByGroup[grp.id].points, ...tradePoints]);
+          sourcePoints.sort((a, b) => a.timestamp - b.timestamp);
 
           const merged: EquityCurvePoint[] = [];
-          for (const pt of combined) {
+          for (const pt of sourcePoints) {
             if (merged.length === 0) {
               merged.push(pt);
               continue;
